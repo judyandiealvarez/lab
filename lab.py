@@ -65,6 +65,30 @@ def get_config():
     def build_ip(last_octet):
         return f"{network_base}.{last_octet}"
     
+    # Build containers list with full IPs
+    containers = []
+    if 'ct' in config:
+        for ct in config['ct']:
+            ct_copy = ct.copy()
+            ct_copy['ip_address'] = build_ip(ct['ip'])
+            containers.append(ct_copy)
+    
+    # Build swarm info from containers
+    swarm_managers = []
+    swarm_workers = []
+    if 'swarm' in config and 'managers' in config['swarm']:
+        for mgr_id in config['swarm']['managers']:
+            for ct in containers:
+                if ct['id'] == mgr_id:
+                    swarm_managers.append(ct)
+                    break
+    if 'swarm' in config and 'workers' in config['swarm']:
+        for worker_id in config['swarm']['workers']:
+            for ct in containers:
+                if ct['id'] == worker_id:
+                    swarm_workers.append(ct)
+                    break
+    
     return {
         'proxmox_host': config['proxmox']['host'],
         'proxmox_storage': config['proxmox']['storage'],
@@ -73,46 +97,21 @@ def get_config():
         'network': config['network'],
         'network_base': network_base,
         'gateway': gateway,
-        'apt_cache_id': config['apt_cache']['id'],
-        'apt_cache_ip': build_ip(config['apt_cache']['ip']),
-        'apt_cache_hostname': config['apt_cache']['hostname'],
-        'apt_cache_port': config['services']['apt_cache']['port'],
-        'ubuntu_template_id': config['ubuntu_template']['id'],
-        'ubuntu_template_ip': build_ip(config['ubuntu_template']['ip']),
-        'ubuntu_template_hostname': config['ubuntu_template']['hostname'],
-        'docker_template_id': config['docker_template']['id'],
-        'docker_template_ip': build_ip(config['docker_template']['ip']),
-        'docker_template_hostname': config['docker_template']['hostname'],
-        'manager_id': config['swarm']['manager']['id'],
-        'manager_ip': build_ip(config['swarm']['manager']['ip']),
-        'manager_hostname': config['swarm']['manager']['hostname'],
-        'worker1_id': config['swarm']['workers'][0]['id'],
-        'worker1_ip': build_ip(config['swarm']['workers'][0]['ip']),
-        'worker1_hostname': config['swarm']['workers'][0]['hostname'],
-        'worker2_id': config['swarm']['workers'][1]['id'],
-        'worker2_ip': build_ip(config['swarm']['workers'][1]['ip']),
-        'worker2_hostname': config['swarm']['workers'][1]['hostname'],
+        'containers': containers,
+        'swarm_managers': swarm_managers,
+        'swarm_workers': swarm_workers,
+        'templates': config['templates'],
+        'template_config': config.get('template_config', {}),
         'swarm_port': config['services']['docker_swarm']['port'],
         'portainer_port': config['services']['portainer']['port'],
         'portainer_image': config['services']['portainer']['image'],
-        'postgresql_id': config['postgresql']['id'],
-        'postgresql_ip': build_ip(config['postgresql']['ip']),
-        'postgresql_hostname': config['postgresql']['hostname'],
-        'postgresql_version': config['postgresql']['version'],
-        'postgresql_port': config['services']['postgresql']['port'],
-        'postgresql_data_dir': config['postgresql']['data_dir'],
-        'haproxy_id': config['haproxy']['id'],
-        'haproxy_ip': build_ip(config['haproxy']['ip']),
-        'haproxy_hostname': config['haproxy']['hostname'],
-        'haproxy_http_port': config['services']['haproxy']['http_port'],
-        'haproxy_https_port': config['services']['haproxy']['https_port'],
-        'haproxy_stats_port': config['services']['haproxy']['stats_port'],
+        'apt_cache_port': config['services']['apt_cache']['port'],
         'timeouts': config['timeouts'],
-        'containers': config['containers'],
+        'container_resources': config.get('containers', {}),  # For backward compatibility
+        'template_resources': config.get('template_resources', {}),
         'users': config['users'],
         'dns': config['dns'],
         'docker': config['docker'],
-        'templates': config['templates'],
         'ssh': config['ssh'],
         'waits': config['waits'],
         'glusterfs': config.get('glusterfs', {})
@@ -270,7 +269,7 @@ def setup_ssh_key(proxmox_host, container_id, ip_address, cfg=None):
 
 def get_base_template(proxmox_host, cfg):
     """Get base Ubuntu template, download if needed"""
-    templates = cfg['templates']['base']
+    templates = cfg['template_config']['base']
     template_dir = cfg['proxmox_template_dir']
     
     for template in templates:
@@ -283,32 +282,88 @@ def get_base_template(proxmox_host, cfg):
     return templates[-1]
 
 
-def create_apt_cache(cfg):
-    """Create apt-cacher-ng container"""
-    print("\n[1/7] Creating apt-cacher-ng container...")
+def create_container(container_cfg, cfg, step_num, total_steps):
+    """Generic container creation dispatcher based on type"""
+    container_type = container_cfg['type']
+    container_name = container_cfg['name']
     
+    print(f"\n[{step_num}/{total_steps}] Creating container '{container_name}' (type: {container_type})...")
+    
+    # Dispatch based on type
+    if container_type == 'apt-cache':
+        return create_container_apt_cache(container_cfg, cfg)
+    elif container_type == 'pgsql':
+        return create_container_pgsql(container_cfg, cfg)
+    elif container_type == 'haproxy':
+        return create_container_haproxy(container_cfg, cfg)
+    elif container_type == 'swarm-manager':
+        return create_container_swarm_manager(container_cfg, cfg)
+    elif container_type == 'swarm-node':
+        return create_container_swarm_node(container_cfg, cfg)
+    else:
+        print(f"ERROR: Unknown container type '{container_type}'", file=sys.stderr)
+        return False
+
+
+def get_template_path(template_name, cfg):
+    """Get path to template file by template name"""
     proxmox_host = cfg['proxmox_host']
-    container_id = cfg['apt_cache_id']
-    ip_address = cfg['apt_cache_ip']
-    hostname = cfg['apt_cache_hostname']
+    template_dir = cfg['proxmox_template_dir']
+    
+    # Find template config
+    template_cfg = None
+    for tmpl in cfg['templates']:
+        if tmpl['name'] == template_name:
+            template_cfg = tmpl
+            break
+    
+    if not template_cfg:
+        # Fallback to base template
+        base_template = get_base_template(proxmox_host, cfg)
+        return f"{template_dir}/{base_template}"
+    
+    # Find template file by pattern
+    template_type = template_cfg['type']
+    pattern = cfg['template_config']['patterns'].get(template_type, '').replace('{date}', '*')
+    template_file = ssh_exec(proxmox_host,
+                           f"ls -t {template_dir}/{pattern} 2>/dev/null | head -1 | xargs basename 2>/dev/null",
+                           check=False, capture_output=True, cfg=cfg)
+    
+    if template_file:
+        return f"{template_dir}/{template_file.strip()}"
+    else:
+        # Fallback to base template
+        base_template = get_base_template(proxmox_host, cfg)
+        return f"{template_dir}/{base_template}"
+
+
+def create_container_apt_cache(container_cfg, cfg):
+    """Create apt-cacher-ng container - method for type 'apt-cache'"""
+    proxmox_host = cfg['proxmox_host']
+    container_id = container_cfg['id']
+    ip_address = container_cfg['ip_address']
+    hostname = container_cfg['hostname']
     gateway = cfg['gateway']
+    template_name = container_cfg.get('template', 'ubuntu-tmpl')
     
     # Destroy if exists
     destroy_container(proxmox_host, container_id, cfg=cfg)
     
-    # Get base template
-    base_template = get_base_template(proxmox_host, cfg)
+    # Get template path
+    template_path = get_template_path(template_name, cfg)
     
     # Get container resources
-    resources = cfg['containers']['apt_cache']
+    resources = container_cfg.get('resources', {})
+    if not resources:
+        # Fallback to container_resources for backward compatibility
+        resources = cfg.get('container_resources', {}).get('apt_cache', {})
     storage = cfg['proxmox_storage']
     bridge = cfg['proxmox_bridge']
-    template_dir = cfg['proxmox_template_dir']
     
     # Create container
-    print(f"Creating container {container_id} from base template...")
+    print(f"Creating container {container_id} from template...")
     ssh_exec(proxmox_host,
-             f"pct create {container_id} {template_dir}/{base_template} "
+             f"pct create {container_id} {template_path} "
              f"--hostname {hostname} "
              f"--memory {resources['memory']} --swap {resources['swap']} --cores {resources['cores']} "
              f"--net0 name=eth0,bridge={bridge},firewall=1,gw={gateway},ip={ip_address}/24,ip6=dhcp,type=veth "
@@ -403,26 +458,55 @@ def create_apt_cache(cfg):
     
     time.sleep(cfg['waits']['service_start'])
     
-    print("✓ apt-cacher-ng created")
+    print(f"✓ apt-cache container '{container_cfg['name']}' created")
     return True
 
 
-def create_ubuntu_template(cfg):
-    """Create Ubuntu template"""
-    print("\n[2/7] Generating Ubuntu template...")
+def create_template(template_cfg, cfg, step_num, total_steps):
+    """Generic template creation dispatcher based on type"""
+    template_type = template_cfg['type']
+    template_name = template_cfg['name']
     
+    print(f"\n[{step_num}/{total_steps}] Creating template '{template_name}' (type: {template_type})...")
+    
+    # Build IP address from last octet
+    network_base = cfg['network_base']
+    ip_address = f"{network_base}.{template_cfg['ip']}"
+    
+    # Prepare template config with full IP
+    prepared_cfg = template_cfg.copy()
+    prepared_cfg['ip_address'] = ip_address
+    
+    # Dispatch based on type
+    if template_type == 'ubuntu':
+        return create_template_ubuntu(prepared_cfg, cfg)
+    elif template_type == 'ubuntu+docker':
+        return create_template_ubuntu_docker(prepared_cfg, cfg)
+    else:
+        print(f"ERROR: Unknown template type '{template_type}'", file=sys.stderr)
+        return False
+
+
+def create_template_ubuntu(template_cfg, cfg):
+    """Create Ubuntu template - method for type 'ubuntu'"""
     proxmox_host = cfg['proxmox_host']
-    container_id = cfg['ubuntu_template_id']
-    ip_address = cfg['ubuntu_template_ip']
-    hostname = cfg['ubuntu_template_hostname']
+    container_id = template_cfg['id']
+    ip_address = template_cfg['ip_address']
+    hostname = template_cfg['hostname']
     gateway = cfg['gateway']
     apt_cache_ip = cfg['apt_cache_ip']
+    template_name = template_cfg['name']
     
     # Destroy if exists
     destroy_container(proxmox_host, container_id, cfg=cfg)
     
     # Get container resources and settings
-    resources = cfg['containers']['ubuntu_template']
+    resources = template_cfg.get('resources', {})
+    if not resources:
+        # Fallback to template_resources or container_resources
+        resources = cfg.get('template_resources', {}).get(template_name, {})
+        if not resources:
+            resources = cfg.get('container_resources', {}).get(template_name, {})
     storage = cfg['proxmox_storage']
     bridge = cfg['proxmox_bridge']
     template_dir = cfg['proxmox_template_dir']
@@ -524,15 +608,15 @@ def create_ubuntu_template(cfg):
     
     # Rename template
     template_dir = cfg['proxmox_template_dir']
-    template_pattern = cfg['templates']['ubuntu_template_pattern']
-    template_name = template_pattern.replace('{date}', datetime.now().strftime('%Y%m%d'))
+    template_pattern = cfg['template_config']['patterns']['ubuntu']
+    final_template_name = template_pattern.replace('{date}', datetime.now().strftime('%Y%m%d'))
     backup_file = ssh_exec(proxmox_host,
                           f"ls -t {template_dir}/vzdump-lxc-{container_id}-*.tar.zst 2>/dev/null | head -1",
                           check=False, capture_output=True, cfg=cfg)
     
     if backup_file:
         ssh_exec(proxmox_host,
-                f"mv '{backup_file}' {template_dir}/{template_name} && ls -lh {template_dir}/{template_name}",
+                f"mv '{backup_file}' {template_dir}/{final_template_name} && ls -lh {template_dir}/{final_template_name}",
                 check=False, cfg=cfg)
     
     # Update template list
@@ -540,35 +624,39 @@ def create_ubuntu_template(cfg):
     
     # Cleanup other templates
     print("Cleaning up other template archives...")
-    preserve_patterns = " ".join([f"! -name '{p}'" for p in cfg['templates']['preserve']])
+    preserve_patterns = " ".join([f"! -name '{p}'" for p in cfg['template_config']['preserve']])
     ssh_exec(proxmox_host,
              f"find {template_dir} -maxdepth 1 -type f -name '*.tar.zst' "
-             f"! -name '{template_name}' {preserve_patterns} -delete || true",
+             f"! -name '{final_template_name}' {preserve_patterns} -delete || true",
              check=False, cfg=cfg)
     
     # Destroy container
     destroy_container(proxmox_host, container_id, cfg=cfg)
     
-    print("✓ Ubuntu template created")
+    print(f"✓ Ubuntu template '{template_name}' created")
     return True
 
 
-def create_docker_template(cfg):
-    """Create Docker template"""
-    print("\n[3/7] Generating Docker template...")
-    
+def create_template_ubuntu_docker(template_cfg, cfg):
+    """Create Docker template - method for type 'ubuntu+docker'"""
     proxmox_host = cfg['proxmox_host']
-    container_id = cfg['docker_template_id']
-    ip_address = cfg['docker_template_ip']
-    hostname = cfg['docker_template_hostname']
+    container_id = template_cfg['id']
+    ip_address = template_cfg['ip_address']
+    hostname = template_cfg['hostname']
     gateway = cfg['gateway']
     apt_cache_ip = cfg['apt_cache_ip']
+    template_name = template_cfg['name']
     
     # Destroy if exists
     destroy_container(proxmox_host, container_id, cfg=cfg)
     
     # Get container resources and settings
-    resources = cfg['containers']['docker_template']
+    resources = template_cfg.get('resources', {})
+    if not resources:
+        # Fallback to template_resources or container_resources
+        resources = cfg.get('template_resources', {}).get(template_name, {})
+        if not resources:
+            resources = cfg.get('container_resources', {}).get(template_name, {})
     storage = cfg['proxmox_storage']
     bridge = cfg['proxmox_bridge']
     template_dir = cfg['proxmox_template_dir']
@@ -705,15 +793,15 @@ def create_docker_template(cfg):
     
     # Rename template
     template_dir = cfg['proxmox_template_dir']
-    template_pattern = cfg['templates']['docker_template_pattern']
-    template_name = template_pattern.replace('{date}', datetime.now().strftime('%Y%m%d'))
+    template_pattern = cfg['template_config']['patterns']['ubuntu+docker']
+    final_template_name = template_pattern.replace('{date}', datetime.now().strftime('%Y%m%d'))
     backup_file = ssh_exec(proxmox_host,
                           f"ls -t {template_dir}/vzdump-lxc-{container_id}-*.tar.zst 2>/dev/null | head -1",
                           check=False, capture_output=True, cfg=cfg)
     
     if backup_file:
         ssh_exec(proxmox_host,
-                f"mv '{backup_file}' {template_dir}/{template_name} && echo 'Template created: {template_name}'",
+                f"mv '{backup_file}' {template_dir}/{final_template_name} && echo 'Template created: {final_template_name}'",
                 check=False, cfg=cfg)
     
     # Update template list
@@ -721,16 +809,16 @@ def create_docker_template(cfg):
     
     # Cleanup
     print("Cleaning up other template archives...")
-    preserve_patterns = " ".join([f"! -name '{p}'" for p in cfg['templates']['preserve']])
+    preserve_patterns = " ".join([f"! -name '{p}'" for p in cfg['template_config']['preserve']])
     ssh_exec(proxmox_host,
              f"find {template_dir} -maxdepth 1 -type f -name '*.tar.zst' "
-             f"! -name '{template_name}' {preserve_patterns} -delete || true",
+             f"! -name '{final_template_name}' {preserve_patterns} -delete || true",
              check=False, cfg=cfg)
     
     # Destroy container
     destroy_container(proxmox_host, container_id, cfg=cfg)
     
-    print("✓ Docker template created")
+    print(f"✓ Docker template '{template_name}' created")
     return True
 
 
@@ -931,39 +1019,39 @@ def setup_glusterfs(cfg):
     return True
 
 
-def create_postgresql(cfg):
-    """Create PostgreSQL container"""
-    print("\n[6/7] Creating PostgreSQL container...")
-    
+def setup_container_base(container_cfg, cfg, privileged=False):
+    """Common container setup: create, start, configure network, user, SSH, DNS, apt"""
     proxmox_host = cfg['proxmox_host']
-    container_id = cfg['postgresql_id']
-    ip_address = cfg['postgresql_ip']
-    hostname = cfg['postgresql_hostname']
+    container_id = container_cfg['id']
+    ip_address = container_cfg['ip_address']
+    hostname = container_cfg['hostname']
     gateway = cfg['gateway']
-    postgresql_version = cfg['postgresql_version']
-    postgresql_port = cfg['postgresql_port']
-    data_dir = cfg['postgresql_data_dir']
+    template_name = container_cfg.get('template', 'ubuntu-tmpl')
     
     # Destroy if exists
     destroy_container(proxmox_host, container_id, cfg=cfg)
     
-    # Get base template
-    base_template = get_base_template(proxmox_host, cfg)
+    # Get template path
+    template_path = get_template_path(template_name, cfg)
     
     # Get container resources
-    resources = cfg['containers']['postgresql']
+    resources = container_cfg.get('resources', {})
+    if not resources:
+        # Fallback to container_resources for backward compatibility
+        container_name = container_cfg['name']
+        resources = cfg.get('container_resources', {}).get(container_name, {})
     storage = cfg['proxmox_storage']
     bridge = cfg['proxmox_bridge']
-    template_dir = cfg['proxmox_template_dir']
     
     # Create container
-    print(f"Creating container {container_id} from base template...")
+    print(f"Creating container {container_id} from template...")
+    unprivileged = 0 if privileged else 1
     ssh_exec(proxmox_host,
-             f"pct create {container_id} {template_dir}/{base_template} "
+             f"pct create {container_id} {template_path} "
              f"--hostname {hostname} "
              f"--memory {resources['memory']} --swap {resources['swap']} --cores {resources['cores']} "
              f"--net0 name=eth0,bridge={bridge},firewall=1,gw={gateway},ip={ip_address}/24,ip6=dhcp,type=veth "
-             f"--rootfs {storage}:{resources['rootfs_size']} --unprivileged 1 --ostype ubuntu --arch amd64",
+             f"--rootfs {storage}:{resources['rootfs_size']} --unprivileged {unprivileged} --ostype ubuntu --arch amd64",
              check=True, cfg=cfg)
     
     # Start container
@@ -1022,15 +1110,30 @@ def create_postgresql(cfg):
     )
     pct_exec(proxmox_host, container_id, fix_sources_cmd, check=False)
     
-    # Configure apt cache
-    apt_cache_port = cfg['apt_cache_port']
-    apt_cache_ip = cfg['apt_cache_ip']
-    print("Configuring apt cache...")
-    pct_exec(proxmox_host, container_id,
-             f"echo 'Acquire::http::Proxy \"http://{apt_cache_ip}:{apt_cache_port}\";' > /etc/apt/apt.conf.d/01proxy || true",
-             check=False, cfg=cfg)
+    # Configure apt cache (if apt-cache container exists)
+    apt_cache_containers = [c for c in cfg['containers'] if c['type'] == 'apt-cache']
+    if apt_cache_containers:
+        apt_cache_ip = apt_cache_containers[0]['ip_address']
+        apt_cache_port = cfg['apt_cache_port']
+        print("Configuring apt cache...")
+        pct_exec(proxmox_host, container_id,
+                 f"echo 'Acquire::http::Proxy \"http://{apt_cache_ip}:{apt_cache_port}\";' > /etc/apt/apt.conf.d/01proxy || true",
+                 check=False, cfg=cfg)
     
-    # Update and upgrade
+    return container_id
+
+
+def create_container_pgsql(container_cfg, cfg):
+    """Create PostgreSQL container - method for type 'pgsql'"""
+    proxmox_host = cfg['proxmox_host']
+    container_id = setup_container_base(container_cfg, cfg, privileged=False)
+    
+    params = container_cfg.get('params', {})
+    postgresql_version = params.get('version', '17')
+    postgresql_port = params.get('port', 5432)
+    data_dir = params.get('data_dir', '/var/lib/postgresql/data')
+    
+    # Update and upgrade (already done in setup_container_base, but ensure packages are up to date)
     print("Updating package lists...")
     pct_exec(proxmox_host, container_id,
              "DEBIAN_FRONTEND=noninteractive apt update -y 2>&1 | tail -10",
@@ -1083,124 +1186,25 @@ def create_postgresql(cfg):
     else:
         print("⚠ PostgreSQL may not be running")
     
-    print("✓ PostgreSQL container created")
+    print(f"✓ PostgreSQL container '{container_cfg['name']}' created")
     return True
 
 
-def create_haproxy(cfg):
-    """Create HAProxy load balancer container"""
-    print("\n[7/7] Creating HAProxy load balancer...")
-    
+def create_container_haproxy(container_cfg, cfg):
+    """Create HAProxy load balancer container - method for type 'haproxy'"""
     proxmox_host = cfg['proxmox_host']
-    container_id = cfg['haproxy_id']
-    ip_address = cfg['haproxy_ip']
-    hostname = cfg['haproxy_hostname']
-    gateway = cfg['gateway']
-    http_port = cfg['haproxy_http_port']
-    https_port = cfg['haproxy_https_port']
-    stats_port = cfg['haproxy_stats_port']
+    container_id = setup_container_base(container_cfg, cfg, privileged=True)
+    
+    params = container_cfg.get('params', {})
+    http_port = params.get('http_port', 80)
+    https_port = params.get('https_port', 443)
+    stats_port = params.get('stats_port', 8404)
     
     # Get Swarm node IPs for backend
-    manager_ip = cfg['manager_ip']
-    worker1_ip = cfg['worker1_ip']
-    worker2_ip = cfg['worker2_ip']
-    
-    # Destroy if exists
-    destroy_container(proxmox_host, container_id, cfg=cfg)
-    
-    # Get base template
-    base_template = get_base_template(proxmox_host, cfg)
-    
-    # Get container resources
-    resources = cfg['containers']['haproxy']
-    storage = cfg['proxmox_storage']
-    bridge = cfg['proxmox_bridge']
-    template_dir = cfg['proxmox_template_dir']
-    
-    # Create container (privileged for port binding)
-    print(f"Creating container {container_id} from base template...")
-    ssh_exec(proxmox_host,
-             f"pct create {container_id} {template_dir}/{base_template} "
-             f"--hostname {hostname} "
-             f"--memory {resources['memory']} --swap {resources['swap']} --cores {resources['cores']} "
-             f"--net0 name=eth0,bridge={bridge},firewall=1,gw={gateway},ip={ip_address}/24,ip6=dhcp,type=veth "
-             f"--rootfs {storage}:{resources['rootfs_size']} --unprivileged 0 --ostype ubuntu --arch amd64",
-             check=True, cfg=cfg)
-    
-    # Start container
-    print("Starting container...")
-    ssh_exec(proxmox_host, f"pct start {container_id}", check=True, cfg=cfg)
-    time.sleep(cfg['waits']['container_startup'])
-    
-    # Configure network
-    print("Configuring network...")
-    pct_exec(proxmox_host, container_id,
-             f"ip link set eth0 up && ip addr add {ip_address}/24 dev eth0 2>/dev/null || true && ip route add default via {gateway} dev eth0 2>/dev/null || true && sleep 2",
-             check=False, cfg=cfg)
-    time.sleep(cfg['waits']['network_config'])
-    
-    # Wait for container
-    if not wait_for_container(proxmox_host, container_id, ip_address, cfg=cfg):
-        print("WARNING: Container may not be fully ready, but continuing...")
-    
-    # Create user and configure sudo
-    default_user = cfg['users']['default_user']
-    sudo_group = cfg['users']['sudo_group']
-    print("Creating user and configuring sudo...")
-    pct_exec(proxmox_host, container_id,
-             f"useradd -m -s /bin/bash -G {sudo_group} {default_user} 2>/dev/null || echo User exists; "
-             f"echo '{default_user} ALL=(ALL) NOPASSWD: ALL' | tee /etc/sudoers.d/{default_user}; "
-             f"chmod 440 /etc/sudoers.d/{default_user}; "
-             f"mkdir -p /home/{default_user}/.ssh; chown -R {default_user}:{default_user} /home/{default_user}; chmod 700 /home/{default_user}/.ssh",
-             check=False, cfg=cfg)
-    
-    # Setup SSH key
-    print("Setting up SSH key...")
-    setup_ssh_key(proxmox_host, container_id, ip_address, cfg)
-    
-    # Configure DNS
-    print("Configuring DNS...")
-    dns_servers = cfg['dns']['servers']
-    dns_cmd = " && ".join([f"echo 'nameserver {dns}' >> /etc/resolv.conf" for dns in dns_servers])
-    pct_exec(proxmox_host, container_id,
-             f"echo 'nameserver {dns_servers[0]}' > /etc/resolv.conf && {dns_cmd.replace(dns_servers[0], '', 1).lstrip(' && ')}",
-             check=False, cfg=cfg)
-    
-    # Fix apt sources
-    print("Fixing apt sources...")
-    fix_sources_cmd = (
-        "if grep -q oracular /etc/apt/sources.list; then "
-        "sed -i 's/oracular/plucky/g' /etc/apt/sources.list && "
-        "sed -i 's|old-releases.ubuntu.com|archive.ubuntu.com|g' /etc/apt/sources.list 2>/dev/null || true && "
-        "sed -i 's/plucky main/plucky main universe multiverse/g' /etc/apt/sources.list && "
-        "sed -i 's/plucky-updates main/plucky-updates main universe multiverse/g' /etc/apt/sources.list && "
-        "sed -i 's/plucky-security main/plucky-security main universe multiverse/g' /etc/apt/sources.list; "
-        "elif grep -q noble /etc/apt/sources.list; then "
-        "sed -i 's/noble main/noble main universe multiverse/g' /etc/apt/sources.list && "
-        "sed -i 's/noble-updates main/noble-updates main universe multiverse/g' /etc/apt/sources.list && "
-        "sed -i 's/noble-security main/noble-security main universe multiverse/g' /etc/apt/sources.list; "
-        "fi"
-    )
-    pct_exec(proxmox_host, container_id, fix_sources_cmd, check=False)
-    
-    # Configure apt cache
-    apt_cache_port = cfg['apt_cache_port']
-    apt_cache_ip = cfg['apt_cache_ip']
-    print("Configuring apt cache...")
-    pct_exec(proxmox_host, container_id,
-             f"echo 'Acquire::http::Proxy \"http://{apt_cache_ip}:{apt_cache_port}\";' > /etc/apt/apt.conf.d/01proxy || true",
-             check=False, cfg=cfg)
-    
-    # Update and upgrade
-    print("Updating package lists...")
-    pct_exec(proxmox_host, container_id,
-             "DEBIAN_FRONTEND=noninteractive apt update -y 2>&1 | tail -10",
-             check=False)
-    
-    print("Upgrading to latest Ubuntu distribution (25.04)...")
-    pct_exec(proxmox_host, container_id,
-             "DEBIAN_FRONTEND=noninteractive apt dist-upgrade -y 2>&1 | tail -10",
-             check=False)
+    swarm_nodes = cfg['swarm_managers'] + cfg['swarm_workers']
+    backend_servers = []
+    for i, node in enumerate(swarm_nodes, 1):
+        backend_servers.append(f"    server node{i} {node['ip_address']}:80 check")
     
     # Install HAProxy
     print("Installing HAProxy...")
@@ -1210,6 +1214,7 @@ def create_haproxy(cfg):
     
     # Create HAProxy configuration
     print("Configuring HAProxy...")
+    backend_servers_str = "\n".join(backend_servers)
     haproxy_config = f"""global
     log /dev/log local0
     log /dev/log local1 notice
@@ -1259,9 +1264,7 @@ backend swarm_backend
     balance roundrobin
     option httpchk GET /
     http-check expect status 200
-    server manager {manager_ip}:80 check
-    server worker1 {worker1_ip}:80 check
-    server worker2 {worker2_ip}:80 check
+{backend_servers_str}
 """
     
     # Write HAProxy config using base64 to avoid quote issues
@@ -1307,37 +1310,44 @@ backend swarm_backend
     else:
         print("⚠ HAProxy may not be running")
     
-    print("✓ HAProxy load balancer created")
+    print(f"✓ HAProxy container '{container_cfg['name']}' created")
+    return True
+
+
+def create_container_swarm_manager(container_cfg, cfg):
+    """Create Swarm manager container - method for type 'swarm-manager'"""
+    # Swarm containers are created during deploy_swarm, this is a placeholder
+    # Actual deployment happens in deploy_swarm()
+    return True
+
+
+def create_container_swarm_node(container_cfg, cfg):
+    """Create Swarm worker node container - method for type 'swarm-node'"""
+    # Swarm containers are created during deploy_swarm, this is a placeholder
+    # Actual deployment happens in deploy_swarm()
     return True
 
 
 def deploy_swarm(cfg):
     """Deploy Docker Swarm"""
-    print("\n[4/7] Deploying Docker Swarm...")
-    
     proxmox_host = cfg['proxmox_host']
     gateway = cfg['gateway']
     
-    # Get Docker template
-    template_dir = cfg['proxmox_template_dir']
-    template_pattern = cfg['templates']['docker_template_pattern'].replace('{date}', '*')
-    template_name = ssh_exec(proxmox_host,
-                            f"ls -t {template_dir}/{template_pattern} 2>/dev/null | head -1 | xargs basename 2>/dev/null",
-                            check=False, capture_output=True, cfg=cfg)
+    # Get all swarm containers (managers + workers)
+    swarm_containers = cfg['swarm_managers'] + cfg['swarm_workers']
     
-    if not template_name:
-        print("ERROR: Docker template not found", file=sys.stderr)
+    if not swarm_containers:
+        print("ERROR: No swarm containers found in configuration", file=sys.stderr)
         return False
     
-    template_path = f"{template_dir}/{template_name}"
-    print(f"Using template: {template_name}")
+    # Get Docker template path
+    template_path = get_template_path('docker-tmpl', cfg)
+    print(f"Using template: {template_path}")
     
     # Container configs
-    containers = [
-        (cfg['manager_id'], cfg['manager_hostname'], cfg['manager_ip']),
-        (cfg['worker1_id'], cfg['worker1_hostname'], cfg['worker1_ip']),
-        (cfg['worker2_id'], cfg['worker2_hostname'], cfg['worker2_ip'])
-    ]
+    containers = []
+    for ct in swarm_containers:
+        containers.append((ct['id'], ct['hostname'], ct['ip_address']))
     
     # Deploy containers
     for container_id, hostname, ip_address in containers:
@@ -1348,7 +1358,7 @@ def deploy_swarm(cfg):
             return False
         
         # Get container resources
-        resources = cfg['containers']['swarm_nodes']
+        resources = cfg['container_resources'].get('swarm_nodes', cfg['container_resources'].get('swarm_nodes', {}))
         storage = cfg['proxmox_storage']
         bridge = cfg['proxmox_bridge']
         
@@ -1367,7 +1377,8 @@ def deploy_swarm(cfg):
         ssh_exec(proxmox_host, f"pct set {container_id} --features nesting=1,keyctl=1,fuse=1", check=False, cfg=cfg)
         
         # Configure sysctl for manager
-        if hostname == cfg['manager_hostname']:
+        is_manager = any(ct['id'] == container_id for ct in cfg['swarm_managers'])
+        if is_manager:
             print("Configuring LXC container for sysctl access...")
             ssh_exec(proxmox_host, f"pct set {container_id} -lxc.cgroup2.devices.allow 'c 10:200 rwm' 2>/dev/null || true", check=False, cfg=cfg)
             ssh_exec(proxmox_host, f"pct set {container_id} -lxc.mount.auto 'proc:rw sys:rw' 2>/dev/null || true", check=False, cfg=cfg)
@@ -1385,18 +1396,21 @@ def deploy_swarm(cfg):
         setup_ssh_key(proxmox_host, container_id, ip_address, cfg)
         
         # Configure apt cache for deployed nodes
-        print("Configuring apt cache...")
-        apt_cache_port = cfg['apt_cache_port']
-        pct_exec(proxmox_host, container_id,
-                f"echo 'Acquire::http::Proxy \"http://{cfg['apt_cache_ip']}:{apt_cache_port}\";' > /etc/apt/apt.conf.d/01proxy || true",
-                check=False, cfg=cfg)
+        apt_cache_containers = [c for c in cfg['containers'] if c['type'] == 'apt-cache']
+        if apt_cache_containers:
+            apt_cache_ip = apt_cache_containers[0]['ip_address']
+            apt_cache_port = cfg['apt_cache_port']
+            print("Configuring apt cache...")
+            pct_exec(proxmox_host, container_id,
+                    f"echo 'Acquire::http::Proxy \"http://{apt_cache_ip}:{apt_cache_port}\";' > /etc/apt/apt.conf.d/01proxy || true",
+                    check=False, cfg=cfg)
         
         # Verify Docker
         print("Verifying Docker installation...")
         pct_exec(proxmox_host, container_id, "docker --version && docker ps 2>&1 | head -5", check=False, cfg=cfg)
         
         # Manager-specific setup
-        if hostname == cfg['manager_hostname']:
+        if is_manager:
             print("Ensuring SSH service is running on manager...")
             pct_exec(proxmox_host, container_id, "systemctl start ssh 2>/dev/null || true", check=False, cfg=cfg)
             print("Configuring sysctl for Docker containers...")
@@ -1428,9 +1442,14 @@ def deploy_swarm(cfg):
     time.sleep(cfg['waits']['swarm_init'])
     
     # Initialize Swarm
+    manager = cfg['swarm_managers'][0] if cfg['swarm_managers'] else None
+    if not manager:
+        print("ERROR: No manager found in swarm configuration", file=sys.stderr)
+        return False
+    
     print("\nInitializing Docker Swarm on manager node...")
-    swarm_init = pct_exec(proxmox_host, cfg['manager_id'],
-                         f"docker swarm init --advertise-addr {cfg['manager_ip']} 2>&1",
+    swarm_init = pct_exec(proxmox_host, manager['id'],
+                         f"docker swarm init --advertise-addr {manager['ip_address']} 2>&1",
                          check=False, capture_output=True, cfg=cfg)
     
     if "already part of a swarm" in swarm_init:
@@ -1442,7 +1461,7 @@ def deploy_swarm(cfg):
     
     # Get worker join token
     print("Getting worker join token...")
-    join_token_output = pct_exec(proxmox_host, cfg['manager_id'],
+    join_token_output = pct_exec(proxmox_host, manager['id'],
                         "docker swarm join-token worker -q 2>&1",
                         check=False, capture_output=True, cfg=cfg)
     # Extract token - get the last non-empty line that looks like a token
@@ -1459,39 +1478,24 @@ def deploy_swarm(cfg):
     
     # Set manager to drain
     print("Setting manager node availability to drain...")
-    pct_exec(proxmox_host, cfg['manager_id'],
-            f"docker node update --availability drain {cfg['manager_hostname']} 2>&1",
+    pct_exec(proxmox_host, manager['id'],
+            f"docker node update --availability drain {manager['hostname']} 2>&1",
             check=False, cfg=cfg)
     
     # Join workers
-    workers = [
-        (cfg['worker1_ip'], cfg['worker1_hostname']),
-        (cfg['worker2_ip'], cfg['worker2_hostname'])
-    ]
-    
     swarm_port = cfg['swarm_port']
     default_user = cfg['users']['default_user']
-    for worker_ip, worker_hostname in workers:
+    manager_ip = manager['ip_address']
+    
+    for worker in cfg['swarm_workers']:
+        worker_ip = worker['ip_address']
+        worker_hostname = worker['hostname']
+        worker_id = worker['id']
         print(f"Joining {worker_hostname} ({worker_ip}) to swarm...")
-        manager_ip = cfg['manager_ip']
-        # Use pct_exec as fallback if SSH fails
-        join_output = ""
-        try:
-            join_cmd = f'docker swarm join --token {join_token} {manager_ip}:{swarm_port}'
-            join_output = pct_exec(proxmox_host, 
-                                  cfg['worker1_id'] if worker_hostname == cfg['worker1_hostname'] else cfg['worker2_id'],
-                                  join_cmd,
-                                  check=False, capture_output=True, cfg=cfg)
-        except:
-            # Fallback to SSH
-            connect_timeout = cfg['ssh']['connect_timeout']
-            join_cmd = f'ssh -o ConnectTimeout={connect_timeout} -o BatchMode=yes -o StrictHostKeyChecking=no {default_user}@{worker_ip} "docker swarm join --token {join_token} {manager_ip}:{swarm_port} 2>&1"'
-            join_output = subprocess.run(
-                join_cmd,
-                shell=True,
-                capture_output=True,
-                text=True
-            ).stdout
+        # Use pct_exec
+        join_cmd = f'docker swarm join --token {join_token} {manager_ip}:{swarm_port}'
+        join_output = pct_exec(proxmox_host, worker_id, join_cmd,
+                              check=False, capture_output=True, cfg=cfg)
         
         if "already part of a swarm" in join_output:
             print(f"Node {worker_hostname} already part of swarm")
@@ -1503,20 +1507,21 @@ def deploy_swarm(cfg):
     
     # Verify swarm
     print("\nVerifying swarm status...")
-    pct_exec(proxmox_host, cfg['manager_id'], "docker node ls 2>&1", check=False, cfg=cfg)
+    pct_exec(proxmox_host, manager['id'], "docker node ls 2>&1", check=False, cfg=cfg)
     
     # Install Portainer
     print("\nInstalling Portainer CE...")
-    pct_exec(proxmox_host, cfg['manager_id'],
+    pct_exec(proxmox_host, manager['id'],
             "docker volume create portainer_data 2>/dev/null || true",
             check=False, cfg=cfg)
     
     # Remove existing portainer if it exists
-    pct_exec(proxmox_host, cfg['manager_id'],
+    pct_exec(proxmox_host, manager['id'],
             "docker stop portainer 2>/dev/null || true; docker rm portainer 2>/dev/null || true",
             check=False, cfg=cfg)
     
     portainer_image = cfg['portainer_image']
+    portainer_port = cfg['portainer_port']
     print("Creating Portainer container...")
     portainer_cmd = (
         "docker run -d --name portainer --restart=always "
@@ -1525,12 +1530,12 @@ def deploy_swarm(cfg):
         "-v portainer_data:/data "
         f"{portainer_image} 2>&1"
     )
-    pct_exec(proxmox_host, cfg['manager_id'], portainer_cmd, check=False, cfg=cfg)
+    pct_exec(proxmox_host, manager['id'], portainer_cmd, check=False, cfg=cfg)
     
     time.sleep(cfg['waits']['portainer_start'])
     
     print("Verifying Portainer is running...")
-    portainer_status = pct_exec(proxmox_host, cfg['manager_id'],
+    portainer_status = pct_exec(proxmox_host, manager['id'],
                                "docker ps --format '{{.Names}} {{.Status}}' | grep portainer || docker ps -a --format '{{.Names}} {{.Status}}' | grep portainer",
                                check=False, capture_output=True, cfg=cfg)
     if portainer_status:
@@ -1563,40 +1568,61 @@ def cmd_deploy():
     print("=" * 50)
     
     try:
-        if not create_apt_cache(cfg):
-            sys.exit(1)
+        # Create templates first
+        templates = cfg['templates']
+        total_steps = len(templates) + 1  # templates + containers (non-swarm) + swarm + glusterfs
+        template_step = 1
         
-        if not create_ubuntu_template(cfg):
-            sys.exit(1)
+        for template_cfg in templates:
+            if not create_template(template_cfg, cfg, template_step, total_steps):
+                sys.exit(1)
+            template_step += 1
         
-        if not create_docker_template(cfg):
-            sys.exit(1)
+        # Create containers (excluding swarm containers which are handled separately)
+        containers = cfg['containers']
+        non_swarm_containers = [c for c in containers if c['type'] not in ['swarm-manager', 'swarm-node']]
+        container_step = template_step
         
+        for container_cfg in non_swarm_containers:
+            if not create_container(container_cfg, cfg, container_step, total_steps):
+                sys.exit(1)
+            container_step += 1
+        
+        # Deploy swarm (creates swarm containers)
+        swarm_step = container_step
+        print(f"\n[{swarm_step}/{total_steps}] Deploying Docker Swarm...")
         if not deploy_swarm(cfg):
             sys.exit(1)
         
+        # Setup GlusterFS
+        gluster_step = swarm_step + 1
+        print(f"\n[{gluster_step}/{total_steps}] Setting up GlusterFS distributed storage...")
         if not setup_glusterfs(cfg):
-            sys.exit(1)
-        
-        if not create_postgresql(cfg):
-            sys.exit(1)
-        
-        if not create_haproxy(cfg):
             sys.exit(1)
         
         print("\n" + "=" * 50)
         print("Deployment Complete!")
         print("=" * 50)
         print(f"\nContainers:")
-        print(f"  - {cfg['apt_cache_id']}: {cfg['apt_cache_hostname']} ({cfg['apt_cache_ip']})")
-        print(f"  - {cfg['manager_id']}: {cfg['manager_hostname']} ({cfg['manager_ip']})")
-        print(f"  - {cfg['worker1_id']}: {cfg['worker1_hostname']} ({cfg['worker1_ip']})")
-        print(f"  - {cfg['worker2_id']}: {cfg['worker2_hostname']} ({cfg['worker2_ip']})")
-        print(f"  - {cfg['postgresql_id']}: {cfg['postgresql_hostname']} ({cfg['postgresql_ip']})")
-        print(f"  - {cfg['haproxy_id']}: {cfg['haproxy_hostname']} ({cfg['haproxy_ip']})")
-        print(f"\nPortainer: https://{cfg['manager_ip']}:{cfg['portainer_port']}")
-        print(f"PostgreSQL: {cfg['postgresql_ip']}:{cfg['postgresql_port']}")
-        print(f"HAProxy: http://{cfg['haproxy_ip']}:{cfg['haproxy_http_port']} (Stats: http://{cfg['haproxy_ip']}:{cfg['haproxy_stats_port']})")
+        for ct in containers:
+            print(f"  - {ct['id']}: {ct['name']} ({ct['ip_address']})")
+        
+        # Show services
+        manager = cfg['swarm_managers'][0] if cfg['swarm_managers'] else None
+        if manager:
+            print(f"\nPortainer: https://{manager['ip_address']}:{cfg['portainer_port']}")
+        
+        pgsql_containers = [c for c in containers if c['type'] == 'pgsql']
+        if pgsql_containers:
+            pgsql = pgsql_containers[0]
+            params = pgsql.get('params', {})
+            print(f"PostgreSQL: {pgsql['ip_address']}:{params.get('port', 5432)}")
+        
+        haproxy_containers = [c for c in containers if c['type'] == 'haproxy']
+        if haproxy_containers:
+            haproxy = haproxy_containers[0]
+            params = haproxy.get('params', {})
+            print(f"HAProxy: http://{haproxy['ip_address']}:{params.get('http_port', 80)} (Stats: http://{haproxy['ip_address']}:{params.get('stats_port', 8404)})")
         if cfg.get('glusterfs'):
             gluster_cfg = cfg['glusterfs']
             print(f"\nGlusterFS:")

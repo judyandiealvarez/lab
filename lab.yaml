@@ -2,55 +2,118 @@
 # Network configuration
 network: "10.11.3.0/24"
 
-# apt-cacher-ng container configuration
-apt_cache:
-  id: 3020
-  ip: 20  # Last octet only
-  hostname: "apt-cacher-ng"
+# Template generation configuration
+templates:
+  - name: ubuntu-tmpl
+    id: 3010
+    ip: 10  # Last octet only
+    hostname: "ubuntu-tmpl"
+    type: ubuntu
+    resources:
+      memory: 2048
+      swap: 2048
+      cores: 4
+      rootfs_size: 20
+  - name: docker-tmpl
+    id: 3008
+    ip: 8  # Last octet only
+    hostname: "docker-tmpl"
+    type: ubuntu+docker
+    resources:
+      memory: 4096
+      swap: 4096
+      cores: 8
+      rootfs_size: 40
 
-# Ubuntu template generation configuration
-ubuntu_template:
-  id: 3010
-  ip: 10  # Last octet only
-  hostname: "ubuntu-template"
 
-# Docker template generation configuration
-docker_template:
-  id: 3008
-  ip: 8  # Last octet only
-  hostname: "docker-template"
-
-# PostgreSQL container configuration
-postgresql:
-  id: 3018
-  ip: 18  # Last octet only
-  hostname: "postgresql"
-  version: "17"
-  port: 5432
-  data_dir: "/var/lib/postgresql/data"
-
-# HAProxy load balancer configuration
-haproxy:
-  id: 3017
-  ip: 17  # Last octet only
-  hostname: "haproxy"
-  http_port: 80
-  https_port: 443
-  stats_port: 8404
-
-# Docker Swarm deployment configuration
-swarm:
-  manager:
+ct:
+  - name: apt-cache
+    id: 3020
+    ip: 20  # Last octet only
+    hostname: "apt-cache"
+    type: apt-cache
+    template: ubuntu-tmpl
+    resources:
+      memory: 2048
+      swap: 2048
+      cores: 4
+      rootfs_size: 20
+  - name: pgsql
+    id: 3018
+    ip: 18  # Last octet only
+    hostname: "pgsql"
+    type: pgsql
+    template: ubuntu-tmpl
+    resources:
+      memory: 2048
+      swap: 2048
+      cores: 2
+      rootfs_size: 30
+    params:
+      version: "17"
+      port: 5432
+      data_dir: "/var/lib/postgresql/data"
+  - name: haproxy
+    id: 3017
+    ip: 17  # Last octet only
+    hostname: "haproxy"
+    type: haproxy
+    template: ubuntu-tmpl
+    resources:
+      memory: 1024
+      swap: 1024
+      cores: 2
+      rootfs_size: 10
+    params:
+      http_port: 80
+      https_port: 443
+      stats_port: 8404
+  - name: swarm-manager
     id: 3005
     ip: 5  # Last octet only
-    hostname: "docker-manager"
+    hostname: "swarm-manager"
+    type: swarm-manager
+    template: docker-tmpl
+    resources:
+      memory: 4096
+      swap: 4096
+      cores: 8
+      rootfs_size: 40
+    params:
+      port: 2377
+  - name: swarm-node-1
+    id: 3006
+    ip: 6  # Last octet only
+    hostname: "swarm-node-1"
+    type: swarm-node
+    template: docker-tmpl
+    resources:
+      memory: 4096
+      swap: 4096
+      cores: 8
+      rootfs_size: 40
+    params:
+      port: 2377
+  - name: swarm-node-2
+    id: 3007
+    ip: 7  # Last octet only
+    hostname: "swarm-node-2"
+    type: swarm-node
+    template: docker-tmpl
+    resources:
+      memory: 4096
+      swap: 4096
+      cores: 8
+      rootfs_size: 40
+    params:
+      port: 2377
+
+swarm:
+  managers:
+    - id: 3005
   workers:
     - id: 3006
-      ip: 6  # Last octet only
-      hostname: "docker-node-1"
     - id: 3007
-      ip: 7  # Last octet only
-      hostname: "docker-node-2"
 
 # Script timeouts (in seconds)
 timeouts:
@@ -66,39 +129,6 @@ proxmox:
   bridge: "vmbr0"
   template_dir: "/var/lib/vz/template/cache"
   gateway_octet: 253  # Last octet of gateway IP
-
-# Container resource defaults
-containers:
-  apt_cache:
-    memory: 2048
-    swap: 2048
-    cores: 4
-    rootfs_size: 20
-  ubuntu_template:
-    memory: 2048
-    swap: 2048
-    cores: 4
-    rootfs_size: 20
-  docker_template:
-    memory: 4096
-    swap: 4096
-    cores: 8
-    rootfs_size: 40
-  swarm_nodes:
-    memory: 4096
-    swap: 4096
-    cores: 8
-    rootfs_size: 40
-  postgresql:
-    memory: 2048
-    swap: 2048
-    cores: 2
-    rootfs_size: 30
-  haproxy:
-    memory: 1024
-    swap: 1024
-    cores: 2
-    rootfs_size: 10
 
 # User configuration
 users:
@@ -135,13 +165,14 @@ docker:
   release: "stable"
   ubuntu_release: "24.04"
 
-# Base templates
-templates:
+# Base templates and patterns
+template_config:
   base:
     - "ubuntu-24.04-standard_24.04-1_amd64.tar.zst"
     - "ubuntu-24.10-standard_24.10-1_amd64.tar.zst"
-  ubuntu_template_pattern: "ubuntu-25.04-template_{date}_amd64.tar.zst"
-  docker_template_pattern: "docker-ubuntu25.04-template_{date}_amd64.tar.zst"
+  patterns:
+    ubuntu: "ubuntu-25.04-template_{date}_amd64.tar.zst"
+    "ubuntu+docker": "docker-ubuntu25.04-template_{date}_amd64.tar.zst"
   preserve:
     - "ubuntu-24.10-standard_24.10-1_amd64.tar.zst"
     - "ubuntu-25.04-template_*.tar.zst"
