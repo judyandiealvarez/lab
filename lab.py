@@ -494,7 +494,9 @@ def create_template_ubuntu(template_cfg, cfg):
     ip_address = template_cfg['ip_address']
     hostname = template_cfg['hostname']
     gateway = cfg['gateway']
-    apt_cache_ip = cfg['apt_cache_ip']
+    # Get apt-cache IP from containers (may not exist yet during template creation)
+    apt_cache_containers = [c for c in cfg.get('containers', []) if c.get('type') == 'apt-cache']
+    apt_cache_ip = apt_cache_containers[0]['ip_address'] if apt_cache_containers else None
     template_name = template_cfg['name']
     
     # Destroy if exists
@@ -534,12 +536,13 @@ def create_template_ubuntu(template_cfg, cfg):
     # Wait for container
     wait_for_container(proxmox_host, container_id, ip_address, cfg=cfg)
     
-    # Configure apt cache FIRST before any apt operations
-    print("Configuring apt cache...")
-    apt_cache_port = cfg['apt_cache_port']
-    pct_exec(proxmox_host, container_id,
-             f"echo 'Acquire::http::Proxy \"http://{apt_cache_ip}:{apt_cache_port}\";' > /etc/apt/apt.conf.d/01proxy || true",
-             check=False, cfg=cfg)
+    # Configure apt cache FIRST before any apt operations (if apt-cache exists)
+    if apt_cache_ip:
+        print("Configuring apt cache...")
+        apt_cache_port = cfg['apt_cache_port']
+        pct_exec(proxmox_host, container_id,
+                 f"echo 'Acquire::http::Proxy \"http://{apt_cache_ip}:{apt_cache_port}\";' > /etc/apt/apt.conf.d/01proxy || true",
+                 check=False, cfg=cfg)
     
     # Fix apt sources
     print("Fixing apt sources...")
@@ -644,7 +647,9 @@ def create_template_ubuntu_docker(template_cfg, cfg):
     ip_address = template_cfg['ip_address']
     hostname = template_cfg['hostname']
     gateway = cfg['gateway']
-    apt_cache_ip = cfg['apt_cache_ip']
+    # Get apt-cache IP from containers (may not exist yet during template creation)
+    apt_cache_containers = [c for c in cfg.get('containers', []) if c.get('type') == 'apt-cache']
+    apt_cache_ip = apt_cache_containers[0]['ip_address'] if apt_cache_containers else None
     template_name = template_cfg['name']
     
     # Destroy if exists
@@ -701,22 +706,48 @@ def create_template_ubuntu_docker(template_cfg, cfg):
     # Fix apt sources
     print("Fixing apt sources...")
     pct_exec(proxmox_host, container_id,
-             "sed -i 's/oracular/plucky/g' /etc/apt/sources.list && "
-             "sed -i 's|old-releases.ubuntu.com|archive.ubuntu.com|g' /etc/apt/sources.list 2>/dev/null || true",
+             "sed -i 's/oracular/plucky/g' /etc/apt/sources.list 2>/dev/null || true; "
+             "sed -i 's|old-releases.ubuntu.com|archive.ubuntu.com|g' /etc/apt/sources.list 2>/dev/null || true; "
+             "if ! grep -q '^deb.*plucky.*main' /etc/apt/sources.list; then "
+             "echo 'deb http://archive.ubuntu.com/ubuntu plucky main universe multiverse' > /etc/apt/sources.list; "
+             "echo 'deb http://archive.ubuntu.com/ubuntu plucky-updates main universe multiverse' >> /etc/apt/sources.list; "
+             "echo 'deb http://archive.ubuntu.com/ubuntu plucky-security main universe multiverse' >> /etc/apt/sources.list; "
+             "fi",
              check=False, cfg=cfg)
     
-    # Update packages
+    # Update packages - remove proxy first to avoid connection issues
     print("Updating package lists...")
     pct_exec(proxmox_host, container_id,
-             f"echo 'Acquire::http::Proxy \"http://{apt_cache_ip}:{apt_cache_port}\";' > /etc/apt/apt.conf.d/01proxy || true; "
-             f"DEBIAN_FRONTEND=noninteractive apt update -y 2>&1 | tail -10",
+             "rm -f /etc/apt/apt.conf.d/01proxy",
              check=False, cfg=cfg)
     
-    # Install prerequisites
+    # Try update without proxy first
+    update_result = pct_exec(proxmox_host, container_id,
+                            f"DEBIAN_FRONTEND=noninteractive apt update -y 2>&1",
+                            check=False, capture_output=True, cfg=cfg)
+    
+    # If update fails and we have apt-cache, try with proxy
+    if apt_cache_ip and ("Failed to fetch" in update_result or "Unable to connect" in update_result):
+        print("  Update failed, trying with apt-cache proxy...")
+        pct_exec(proxmox_host, container_id,
+                 f"echo 'Acquire::http::Proxy \"http://{apt_cache_ip}:{apt_cache_port}\";' > /etc/apt/apt.conf.d/01proxy || true; "
+                 f"DEBIAN_FRONTEND=noninteractive apt update -y 2>&1 | tail -10",
+                 check=False, cfg=cfg)
+    
+    # Install prerequisites - try without proxy first
     print("Installing prerequisites...")
-    pct_exec(proxmox_host, container_id,
-             "DEBIAN_FRONTEND=noninteractive apt install -y curl apt-transport-https ca-certificates software-properties-common 2>&1 | tail -5",
-             check=False, cfg=cfg)
+    install_result = pct_exec(proxmox_host, container_id,
+                             "DEBIAN_FRONTEND=noninteractive apt install -y curl apt-transport-https ca-certificates software-properties-common gnupg lsb-release 2>&1",
+                             check=False, capture_output=True, cfg=cfg)
+    
+    # If install fails, remove proxy and try again
+    if "Unable to locate package" in install_result or "Failed to fetch" in install_result:
+        print("  Install failed, removing proxy and retrying...")
+        pct_exec(proxmox_host, container_id,
+                 "rm -f /etc/apt/apt.conf.d/01proxy; "
+                 "DEBIAN_FRONTEND=noninteractive apt update -qq && "
+                 "DEBIAN_FRONTEND=noninteractive apt install -y curl apt-transport-https ca-certificates software-properties-common gnupg lsb-release 2>&1 | tail -10",
+                 check=False, cfg=cfg)
     
     # Upgrade
     print("Upgrading to latest Ubuntu distribution (25.04)...")
@@ -724,18 +755,38 @@ def create_template_ubuntu_docker(template_cfg, cfg):
              "DEBIAN_FRONTEND=noninteractive apt dist-upgrade -y 2>&1 | tail -10",
              check=False, cfg=cfg)
     
-    # Install Docker
+    # Install Docker - remove proxy first to avoid connection issues
     print("Installing Docker...")
     pct_exec(proxmox_host, container_id,
-             "curl -fsSL https://get.docker.com -o /tmp/get-docker.sh && sh /tmp/get-docker.sh 2>&1 | tail -10",
+             "rm -f /etc/apt/apt.conf.d/01proxy",
              check=False, cfg=cfg)
     
-    # Fallback to docker.io if needed
-    print("Verifying Docker install or applying fallback...")
-    pct_exec(proxmox_host, container_id,
-             "command -v docker >/dev/null 2>&1 || (echo 'get.docker.com failed; installing docker.io from Ubuntu repos...' && "
-             "DEBIAN_FRONTEND=noninteractive apt install -y docker.io 2>&1 | tail -20)",
-             check=False, cfg=cfg)
+    docker_install_script = (
+        "rm -f /etc/apt/apt.conf.d/01proxy; "
+        "DEBIAN_FRONTEND=noninteractive apt update -qq 2>&1 && "
+        "if command -v curl >/dev/null 2>&1; then "
+        "  curl -fsSL https://get.docker.com -o /tmp/get-docker.sh 2>&1 && sh /tmp/get-docker.sh 2>&1 | tail -10 || "
+        "  (echo 'get.docker.com failed, trying docker.io...' && DEBIAN_FRONTEND=noninteractive apt install -y docker.io containerd.io 2>&1 | tail -20); "
+        "else "
+        "  echo 'curl not available, installing docker.io...'; "
+        "  DEBIAN_FRONTEND=noninteractive apt install -y docker.io containerd.io 2>&1 | tail -20; "
+        "fi"
+    )
+    docker_result = pct_exec(proxmox_host, container_id, docker_install_script, check=False, capture_output=True, cfg=cfg)
+    
+    # Verify Docker installation
+    print("Verifying Docker install...")
+    docker_check = pct_exec(proxmox_host, container_id,
+                           "command -v docker >/dev/null 2>&1 && docker --version || echo 'docker_not_found'",
+                           check=False, capture_output=True, cfg=cfg)
+    
+    if "docker_not_found" in docker_check or "docker" not in docker_check.lower():
+        print("Docker not found, installing docker.io directly...")
+        pct_exec(proxmox_host, container_id,
+                "rm -f /etc/apt/apt.conf.d/01proxy; "
+                "DEBIAN_FRONTEND=noninteractive apt update -qq && "
+                "DEBIAN_FRONTEND=noninteractive apt install -y docker.io containerd.io 2>&1 | tail -20",
+                check=False, cfg=cfg)
     
     # Configure Docker user group
     default_user = cfg['users']['default_user']
@@ -839,23 +890,53 @@ def setup_glusterfs(cfg):
     replica_count = gluster_cfg.get('replica_count', 3)
     
     # Get all node info - manager for management, workers for storage
-    manager_node = (cfg['manager_id'], cfg['manager_hostname'], cfg['manager_ip'])
-    worker_nodes = [
-        (cfg['worker1_id'], cfg['worker1_hostname'], cfg['worker1_ip']),
-        (cfg['worker2_id'], cfg['worker2_hostname'], cfg['worker2_ip'])
-    ]
+    swarm_manager_configs = [c for c in cfg['containers'] if c['type'] == 'swarm-manager']
+    swarm_worker_configs = [c for c in cfg['containers'] if c['type'] == 'swarm-node']
+    
+    if not swarm_manager_configs or not swarm_worker_configs:
+        print("ERROR: Swarm managers or workers not found", file=sys.stderr)
+        return False
+    
+    manager = swarm_manager_configs[0]
+    manager_node = (manager['id'], manager['hostname'], manager['ip_address'])
+    worker_nodes = [(w['id'], w['hostname'], w['ip_address']) for w in swarm_worker_configs]
     # All nodes for mounting, but only workers for storage bricks
     all_nodes = [manager_node] + worker_nodes
     
     # Install GlusterFS server on all nodes (manager for management, workers for storage)
     print("Installing GlusterFS server on all nodes...")
-    apt_cache_port = cfg['apt_cache_port']
-    apt_cache_ip = cfg['apt_cache_ip']
+    apt_cache_containers = [c for c in cfg.get('containers', []) if c.get('type') == 'apt-cache']
+    apt_cache_ip = apt_cache_containers[0]['ip_address'] if apt_cache_containers else None
+    apt_cache_port = cfg['apt_cache_port'] if apt_cache_ip else None
+    
+    # First, ensure apt sources are correct on all nodes
+    for container_id, hostname, ip_address in all_nodes:
+        print(f"  Fixing apt sources on {hostname}...")
+        pct_exec(proxmox_host, container_id,
+                "sed -i 's/oracular/plucky/g' /etc/apt/sources.list 2>/dev/null || true; "
+                "if ! grep -q '^deb.*plucky.*main' /etc/apt/sources.list; then "
+                "echo 'deb http://archive.ubuntu.com/ubuntu plucky main universe multiverse' > /etc/apt/sources.list; "
+                "echo 'deb http://archive.ubuntu.com/ubuntu plucky-updates main universe multiverse' >> /etc/apt/sources.list; "
+                "echo 'deb http://archive.ubuntu.com/ubuntu plucky-security main universe multiverse' >> /etc/apt/sources.list; "
+                "fi",
+                check=False, cfg=cfg)
+    
     for container_id, hostname, ip_address in all_nodes:
         print(f"  Installing on {hostname}...")
-        # Configure apt cache proxy
+        # Configure apt cache proxy (optional, don't fail if apt-cache is down)
+        if apt_cache_ip and apt_cache_port:
+            pct_exec(proxmox_host, container_id,
+                    f"echo 'Acquire::http::Proxy \"http://{apt_cache_ip}:{apt_cache_port}\";' > /etc/apt/apt.conf.d/01proxy || true",
+                    check=False, cfg=cfg)
+        else:
+            # Remove proxy if apt-cache not available
+            pct_exec(proxmox_host, container_id,
+                    "rm -f /etc/apt/apt.conf.d/01proxy",
+                    check=False, cfg=cfg)
+        
+        # Remove apt-cache proxy if it's causing issues, then update and install
         pct_exec(proxmox_host, container_id,
-                f"echo 'Acquire::http::Proxy \"http://{apt_cache_ip}:{apt_cache_port}\";' > /etc/apt/apt.conf.d/01proxy || true",
+                "rm -f /etc/apt/apt.conf.d/01proxy",
                 check=False, cfg=cfg)
         
         # Update and install
@@ -894,19 +975,24 @@ def setup_glusterfs(cfg):
     
     # Create brick directories (only on worker nodes)
     print("Creating brick directories on worker nodes...")
-    for container_id, hostname, ip_address in worker_nodes:
+    for worker in swarm_worker_configs:
+        container_id = worker['id']
+        hostname = worker['hostname']
         print(f"  Creating brick on {hostname}...")
         pct_exec(proxmox_host, container_id,
                 f"mkdir -p {brick_path} && chmod 755 {brick_path}",
                 check=False, cfg=cfg)
     
     # Peer nodes together (from manager)
-    manager_id = cfg['manager_id']
-    manager_hostname = cfg['manager_hostname']
-    manager_ip = cfg['manager_ip']
+    manager_id = manager['id']
+    manager_hostname = manager['hostname']
+    manager_ip = manager['ip_address']
     
     print("Peering worker nodes together...")
-    for container_id, hostname, ip_address in worker_nodes:
+    for worker in swarm_worker_configs:
+        container_id = worker['id']
+        hostname = worker['hostname']
+        ip_address = worker['ip_address']
         print(f"  Adding {hostname} ({ip_address}) to cluster...")
         # Try to probe, ignore if already connected
         pct_exec(proxmox_host, manager_id,
@@ -926,7 +1012,7 @@ def setup_glusterfs(cfg):
             print(peer_status)
             # Check if all peers are connected
             connected_count = peer_status.count("Peer in Cluster (Connected)")
-            if connected_count >= len(worker_nodes):  # All workers connected
+            if connected_count >= len(swarm_worker_configs):  # All workers connected
                 print(f"  ✓ All {connected_count} worker peers connected")
                 break
         if attempt < max_peer_attempts:
@@ -943,7 +1029,7 @@ def setup_glusterfs(cfg):
     
     if "yes" not in volume_exists:
         # Build volume create command - use IP addresses for reliability (only worker nodes)
-        brick_list = " ".join([f"{ip_address}:{brick_path}" for _, _, ip_address in worker_nodes])
+        brick_list = " ".join([f"{w['ip_address']}:{brick_path}" for w in swarm_worker_configs])
         create_cmd = (
             f"gluster volume create {volume_name} "
             f"replica {replica_count} {brick_list} force 2>&1"
@@ -977,7 +1063,10 @@ def setup_glusterfs(cfg):
     
     # Mount GlusterFS volume on all nodes (for access, not storage)
     print("Mounting GlusterFS volume on all nodes...")
-    for container_id, hostname, ip_address in all_nodes:
+    for node in [manager] + swarm_worker_configs:
+        container_id = node['id']
+        hostname = node['hostname']
+        ip_address = node['ip_address']
         print(f"  Mounting on {hostname}...")
         # Create mount point
         pct_exec(proxmox_host, container_id,
@@ -993,7 +1082,7 @@ def setup_glusterfs(cfg):
         # Mount
         pct_exec(proxmox_host, container_id,
                 f"mount -t glusterfs {manager_hostname}:/{volume_name} {mount_point} 2>&1 || "
-                f"mount -t glusterfs {manager_ip}:/{volume_name} {mount_point} 2>&1",
+                f"mount -t glusterfs {manager['ip_address']}:/{volume_name} {mount_point} 2>&1",
                 check=False, cfg=cfg)
         
         # Verify mount - check if it's actually mounted
@@ -1333,32 +1422,37 @@ def deploy_swarm(cfg):
     proxmox_host = cfg['proxmox_host']
     gateway = cfg['gateway']
     
-    # Get all swarm containers (managers + workers)
-    swarm_containers = cfg['swarm_managers'] + cfg['swarm_workers']
+    # Get swarm container configs from containers list
+    swarm_manager_configs = [c for c in cfg['containers'] if c['type'] == 'swarm-manager']
+    swarm_worker_configs = [c for c in cfg['containers'] if c['type'] == 'swarm-node']
     
-    if not swarm_containers:
-        print("ERROR: No swarm containers found in configuration", file=sys.stderr)
+    if not swarm_manager_configs or not swarm_worker_configs:
+        print("ERROR: Swarm manager or worker containers not found in configuration", file=sys.stderr)
         return False
     
     # Get Docker template path
     template_path = get_template_path('docker-tmpl', cfg)
     print(f"Using template: {template_path}")
     
-    # Container configs
-    containers = []
-    for ct in swarm_containers:
-        containers.append((ct['id'], ct['hostname'], ct['ip_address']))
+    # Deploy all swarm containers (managers + workers)
+    all_swarm_configs = swarm_manager_configs + swarm_worker_configs
     
-    # Deploy containers
-    for container_id, hostname, ip_address in containers:
+    for container_cfg in all_swarm_configs:
+        container_id = container_cfg['id']
+        hostname = container_cfg['hostname']
+        ip_address = container_cfg['ip_address']
         print(f"\nDeploying container {container_id} ({hostname})...")
         
+        # Destroy if exists
         if container_exists(proxmox_host, container_id, cfg=cfg):
-            print(f"ERROR: Container {container_id} already exists", file=sys.stderr)
-            return False
+            print(f"  Destroying existing container {container_id}...")
+            destroy_container(proxmox_host, container_id, cfg=cfg)
         
-        # Get container resources
-        resources = cfg['container_resources'].get('swarm_nodes', cfg['container_resources'].get('swarm_nodes', {}))
+        # Get container resources from container config
+        resources = container_cfg.get('resources', {})
+        if not resources:
+            # Default fallback
+            resources = {'memory': 4096, 'swap': 4096, 'cores': 8, 'rootfs_size': 40}
         storage = cfg['proxmox_storage']
         bridge = cfg['proxmox_bridge']
         
@@ -1377,7 +1471,7 @@ def deploy_swarm(cfg):
         ssh_exec(proxmox_host, f"pct set {container_id} --features nesting=1,keyctl=1,fuse=1", check=False, cfg=cfg)
         
         # Configure sysctl for manager
-        is_manager = any(ct['id'] == container_id for ct in cfg['swarm_managers'])
+        is_manager = container_cfg['type'] == 'swarm-manager'
         if is_manager:
             print("Configuring LXC container for sysctl access...")
             ssh_exec(proxmox_host, f"pct set {container_id} -lxc.cgroup2.devices.allow 'c 10:200 rwm' 2>/dev/null || true", check=False, cfg=cfg)
@@ -1407,7 +1501,18 @@ def deploy_swarm(cfg):
         
         # Verify Docker
         print("Verifying Docker installation...")
-        pct_exec(proxmox_host, container_id, "docker --version && docker ps 2>&1 | head -5", check=False, cfg=cfg)
+        docker_verify = pct_exec(proxmox_host, container_id, 
+                               "command -v docker >/dev/null 2>&1 && docker --version && docker ps 2>&1 | head -5 || echo 'Docker not found'",
+                               check=False, capture_output=True, cfg=cfg)
+        if "Docker not found" in docker_verify or "docker" not in docker_verify.lower():
+            print("Docker not installed, installing docker.io...")
+            pct_exec(proxmox_host, container_id,
+                    "DEBIAN_FRONTEND=noninteractive apt install -y docker.io containerd.io 2>&1 | tail -20",
+                    check=False, cfg=cfg)
+            # Start Docker
+            pct_exec(proxmox_host, container_id,
+                    "systemctl enable docker && systemctl start docker",
+                    check=False, cfg=cfg)
         
         # Manager-specific setup
         if is_manager:
@@ -1422,34 +1527,38 @@ def deploy_swarm(cfg):
         
         print(f"✓ Container {container_id} ({hostname}) deployed successfully")
     
-    # Downgrade Docker on manager
-    docker_version = cfg['docker']['version']
-    docker_repo = cfg['docker']['repository']
-    docker_release = cfg['docker']['release']
-    docker_ubuntu_release = cfg['docker']['ubuntu_release']
-    print(f"\nDowngrading Docker to {docker_version} (fixes Portainer)...")
-    pct_exec(proxmox_host, cfg['manager_id'],
-            f"bash -c '"
-            f"apt-mark unhold docker-ce docker-ce-cli 2>/dev/null; "
-            f"curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg && "
-            f"echo \"deb [arch=amd64 signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/ubuntu {docker_repo} {docker_release}\" > /etc/apt/sources.list.d/docker.list && "
-            f"apt-get update -qq && "
-            f"apt-get install -y --allow-downgrades docker-ce=5:{docker_version}-1~ubuntu.{docker_ubuntu_release}~{docker_repo} docker-ce-cli=5:{docker_version}-1~ubuntu.{docker_ubuntu_release}~{docker_repo} && "
-            f"apt-mark hold docker-ce docker-ce-cli && "
-            f"systemctl restart docker'",
+    # Ensure Docker is installed and running on manager (after all containers are created)
+    manager_config = swarm_manager_configs[0]
+    manager_id = manager_config['id']
+    
+    # Check if Docker is installed
+    docker_check = pct_exec(proxmox_host, manager_id,
+                          "command -v docker >/dev/null 2>&1 && echo 'docker_installed' || echo 'docker_missing'",
+                          check=False, capture_output=True, cfg=cfg)
+    
+    if "docker_missing" in docker_check:
+        print("\nInstalling Docker on manager...")
+        pct_exec(proxmox_host, manager_id,
+                "DEBIAN_FRONTEND=noninteractive apt install -y docker.io containerd.io docker-compose-plugin 2>&1 | tail -20",
+                check=False, cfg=cfg)
+    
+    # Start Docker service
+    print("Starting Docker service on manager...")
+    pct_exec(proxmox_host, manager_id,
+            "systemctl enable docker && systemctl start docker && systemctl status docker --no-pager | head -5",
             check=False, cfg=cfg)
     
     time.sleep(cfg['waits']['swarm_init'])
     
-    # Initialize Swarm
-    manager = cfg['swarm_managers'][0] if cfg['swarm_managers'] else None
-    if not manager:
-        print("ERROR: No manager found in swarm configuration", file=sys.stderr)
-        return False
+    # Initialize Swarm (use the first manager config)
+    manager_config = swarm_manager_configs[0]
+    manager_id = manager_config['id']
+    manager_ip = manager_config['ip_address']
+    manager_hostname = manager_config['hostname']
     
     print("\nInitializing Docker Swarm on manager node...")
-    swarm_init = pct_exec(proxmox_host, manager['id'],
-                         f"docker swarm init --advertise-addr {manager['ip_address']} 2>&1",
+    swarm_init = pct_exec(proxmox_host, manager_id,
+                         f"docker swarm init --advertise-addr {manager_ip} 2>&1",
                          check=False, capture_output=True, cfg=cfg)
     
     if "already part of a swarm" in swarm_init:
@@ -1461,7 +1570,7 @@ def deploy_swarm(cfg):
     
     # Get worker join token
     print("Getting worker join token...")
-    join_token_output = pct_exec(proxmox_host, manager['id'],
+    join_token_output = pct_exec(proxmox_host, manager_id,
                         "docker swarm join-token worker -q 2>&1",
                         check=False, capture_output=True, cfg=cfg)
     # Extract token - get the last non-empty line that looks like a token
@@ -1478,19 +1587,17 @@ def deploy_swarm(cfg):
     
     # Set manager to drain
     print("Setting manager node availability to drain...")
-    pct_exec(proxmox_host, manager['id'],
-            f"docker node update --availability drain {manager['hostname']} 2>&1",
+    pct_exec(proxmox_host, manager_id,
+            f"docker node update --availability drain {manager_hostname} 2>&1",
             check=False, cfg=cfg)
     
     # Join workers
     swarm_port = cfg['swarm_port']
-    default_user = cfg['users']['default_user']
-    manager_ip = manager['ip_address']
     
-    for worker in cfg['swarm_workers']:
-        worker_ip = worker['ip_address']
-        worker_hostname = worker['hostname']
-        worker_id = worker['id']
+    for worker_config in swarm_worker_configs:
+        worker_ip = worker_config['ip_address']
+        worker_hostname = worker_config['hostname']
+        worker_id = worker_config['id']
         print(f"Joining {worker_hostname} ({worker_ip}) to swarm...")
         # Use pct_exec
         join_cmd = f'docker swarm join --token {join_token} {manager_ip}:{swarm_port}'
@@ -1507,16 +1614,16 @@ def deploy_swarm(cfg):
     
     # Verify swarm
     print("\nVerifying swarm status...")
-    pct_exec(proxmox_host, manager['id'], "docker node ls 2>&1", check=False, cfg=cfg)
+    pct_exec(proxmox_host, manager_id, "docker node ls 2>&1", check=False, cfg=cfg)
     
     # Install Portainer
     print("\nInstalling Portainer CE...")
-    pct_exec(proxmox_host, manager['id'],
+    pct_exec(proxmox_host, manager_id,
             "docker volume create portainer_data 2>/dev/null || true",
             check=False, cfg=cfg)
     
     # Remove existing portainer if it exists
-    pct_exec(proxmox_host, manager['id'],
+    pct_exec(proxmox_host, manager_id,
             "docker stop portainer 2>/dev/null || true; docker rm portainer 2>/dev/null || true",
             check=False, cfg=cfg)
     
@@ -1530,12 +1637,12 @@ def deploy_swarm(cfg):
         "-v portainer_data:/data "
         f"{portainer_image} 2>&1"
     )
-    pct_exec(proxmox_host, manager['id'], portainer_cmd, check=False, cfg=cfg)
+    pct_exec(proxmox_host, manager_id, portainer_cmd, check=False, cfg=cfg)
     
     time.sleep(cfg['waits']['portainer_start'])
     
     print("Verifying Portainer is running...")
-    portainer_status = pct_exec(proxmox_host, manager['id'],
+    portainer_status = pct_exec(proxmox_host, manager_id,
                                "docker ps --format '{{.Names}} {{.Status}}' | grep portainer || docker ps -a --format '{{.Names}} {{.Status}}' | grep portainer",
                                check=False, capture_output=True, cfg=cfg)
     if portainer_status:
@@ -1544,12 +1651,12 @@ def deploy_swarm(cfg):
         print("WARNING: Portainer container not found")
     
     # Check Portainer logs if not running
-    portainer_running = pct_exec(proxmox_host, cfg['manager_id'],
+    portainer_running = pct_exec(proxmox_host, manager_id,
                                  "docker ps --format '{{.Names}}' | grep -q '^portainer$' && echo yes || echo no",
                                  check=False, capture_output=True, cfg=cfg)
     if "no" in portainer_running:
         print("Portainer failed to start. Checking logs...")
-        logs = pct_exec(proxmox_host, cfg['manager_id'],
+        logs = pct_exec(proxmox_host, manager_id,
                        "docker logs portainer 2>&1 | tail -20",
                        check=False, capture_output=True, cfg=cfg)
         if logs:
@@ -1608,8 +1715,9 @@ def cmd_deploy():
             print(f"  - {ct['id']}: {ct['name']} ({ct['ip_address']})")
         
         # Show services
-        manager = cfg['swarm_managers'][0] if cfg['swarm_managers'] else None
-        if manager:
+        manager_configs = [c for c in cfg['containers'] if c['type'] == 'swarm-manager']
+        if manager_configs:
+            manager = manager_configs[0]
             print(f"\nPortainer: https://{manager['ip_address']}:{cfg['portainer_port']}")
         
         pgsql_containers = [c for c in containers if c['type'] == 'pgsql']
@@ -1702,7 +1810,13 @@ def cmd_status():
     
     # Check swarm status
     print("\nDocker Swarm:")
-    result = pct_exec(cfg["proxmox_host"], cfg["manager_id"],
+    # Get manager from containers
+    manager_configs = [c for c in cfg['containers'] if c['type'] == 'swarm-manager']
+    if not manager_configs:
+        print("No swarm manager found")
+        return
+    manager_id = manager_configs[0]['id']
+    result = pct_exec(cfg["proxmox_host"], manager_id,
                     "docker node ls 2>/dev/null || echo 'Swarm not initialized or manager not available'",
                     check=False, capture_output=True, cfg=cfg)
     if result:
