@@ -12,6 +12,12 @@ import re
 from pathlib import Path
 from datetime import datetime
 
+try:
+    import paramiko
+    HAS_PARAMIKO = True
+except ImportError:
+    HAS_PARAMIKO = False
+
 SCRIPT_DIR = Path(__file__).parent.absolute()
 CONFIG_FILE = SCRIPT_DIR / "lab.yaml"
 
@@ -32,11 +38,10 @@ def load_config():
         if HAS_YAML:
             with open(CONFIG_FILE, 'r') as f:
                 config = yaml.safe_load(f)
+            return config
         else:
             print("Error: PyYAML is required. Install it with: pip install pyyaml", file=sys.stderr)
             sys.exit(1)
-        
-        return config
     except Exception as e:
         print(f"Error loading configuration: {e}", file=sys.stderr)
         sys.exit(1)
@@ -78,14 +83,16 @@ def get_config():
     swarm_workers = []
     if 'swarm' in config and 'managers' in config['swarm']:
         for mgr_id in config['swarm']['managers']:
-            for ct in containers:
-                if ct['id'] == mgr_id:
+            manager_id = mgr_id['id'] if isinstance(mgr_id, dict) else mgr_id
+        for ct in containers:
+                if ct['id'] == manager_id:
                     swarm_managers.append(ct)
                     break
     if 'swarm' in config and 'workers' in config['swarm']:
         for worker_id in config['swarm']['workers']:
-            for ct in containers:
-                if ct['id'] == worker_id:
+            worker_id_val = worker_id['id'] if isinstance(worker_id, dict) else worker_id
+        for ct in containers:
+                if ct['id'] == worker_id_val:
                     swarm_workers.append(ct)
                     break
     
@@ -114,14 +121,78 @@ def get_config():
         'docker': config['docker'],
         'ssh': config['ssh'],
         'waits': config['waits'],
-        'glusterfs': config.get('glusterfs', {})
+        'glusterfs': config.get('glusterfs', {}),
+        'apt-cache-ct': config.get('apt-cache-ct', 'apt-cache')
     }
 
 
 def ssh_exec(host, command, check=True, capture_output=False, timeout=None, cfg=None):
-    """Execute command via SSH"""
+    """Execute command via SSH using paramiko if available, fallback to subprocess"""
+    if HAS_PARAMIKO and cfg:
+        try:
+            # Parse host (format: user@host or just host)
+            if '@' in host:
+                username, hostname = host.split('@', 1)
+            else:
+                username = 'root'
+                hostname = host
+            
+            connect_timeout = cfg.get('ssh', {}).get('connect_timeout', 10)
+            exec_timeout = timeout if timeout else 300
+            
+            # Create SSH client
+            client = paramiko.SSHClient()
+            client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+            
+            # Connect
+            client.connect(
+                hostname=hostname,
+                username=username,
+                timeout=connect_timeout,
+                look_for_keys=True,
+                allow_agent=True
+            )
+            
+            # Execute command
+            stdin, stdout, stderr = client.exec_command(command, timeout=exec_timeout)
+            
+            # Get exit status
+            exit_status = stdout.channel.recv_exit_status()
+            
+            if capture_output:
+                output = stdout.read().decode('utf-8').strip()
+                error_output = stderr.read().decode('utf-8').strip()
+                client.close()
+                if exit_status != 0 and check:
+                    raise subprocess.CalledProcessError(exit_status, command, output, error_output)
+                return output
+            else:
+                # For non-capture mode, read output to prevent buffer issues
+                stdout.read()
+                stderr.read()
+                client.close()
+                if exit_status != 0 and check:
+                    raise subprocess.CalledProcessError(exit_status, command)
+                return exit_status == 0
+                
+        except paramiko.SSHException as e:
+            if capture_output:
+                return None
+            if check:
+                raise
+            return False
+        except Exception as e:
+            # Fallback to subprocess if paramiko fails
+            if capture_output:
+                pass  # Will fall through to subprocess
+            else:
+                if check:
+                    raise
+                return False
+    
+    # Fallback to subprocess if paramiko not available or failed
     connect_timeout = cfg['ssh']['connect_timeout'] if cfg and 'ssh' in cfg else 10
-    batch_mode = 'yes' if (cfg and cfg['ssh'].get('batch_mode', True)) else 'no'
+    batch_mode = 'yes' if (cfg and cfg.get('ssh', {}).get('batch_mode', True)) else 'no'
     cmd = f'ssh -o ConnectTimeout={connect_timeout} -o BatchMode={batch_mode} {host} "{command}"'
     try:
         result = subprocess.run(
@@ -136,12 +207,16 @@ def ssh_exec(host, command, check=True, capture_output=False, timeout=None, cfg=
             return result.stdout.strip()
         return result.returncode == 0
     except subprocess.TimeoutExpired:
+        if capture_output:
+            return None
         return False
     except subprocess.CalledProcessError:
+        if capture_output:
+            return None
         return False
 
 
-def pct_exec(proxmox_host, container_id, command, check=True, capture_output=False, cfg=None):
+def pct_exec(proxmox_host, container_id, command, check=True, capture_output=False, timeout=30, cfg=None):
     """Execute command in container via pct exec"""
     # Use base64 encoding to avoid quote escaping issues
     import base64
@@ -156,27 +231,58 @@ def pct_exec(proxmox_host, container_id, command, check=True, capture_output=Fal
             shell=True,
             check=check,
             capture_output=capture_output,
-            text=True
+        text=True,
+        timeout=timeout
         )
         if capture_output:
             return result.stdout.strip()
         return result.returncode == 0
+    except subprocess.TimeoutExpired:
+        if capture_output:
+            return None
+        return False
     except subprocess.CalledProcessError:
+        if capture_output:
+            return None
         return False
 
 
 def container_exists(proxmox_host, container_id, cfg=None):
     """Check if container exists"""
-    result = ssh_exec(proxmox_host, f"pct list | grep -q '^{container_id} '", check=False, capture_output=False, cfg=cfg)
-    return result
+    container_id_str = str(container_id)
+    result = ssh_exec(proxmox_host, f"pct list | grep '^{container_id_str} '", check=False, capture_output=True, cfg=cfg)
+    return result is not None and container_id_str in result
 
 
 def destroy_container(proxmox_host, container_id, cfg=None):
     """Destroy container if it exists"""
-    if container_exists(proxmox_host, container_id, cfg=cfg):
-        print(f"  Destroying existing container {container_id}...")
-        ssh_exec(proxmox_host, f"pct stop {container_id} 2>/dev/null || true", check=False, cfg=cfg)
-        ssh_exec(proxmox_host, f"pct destroy {container_id} 2>/dev/null || true", check=False, cfg=cfg)
+    # Check if container exists
+    container_id_str = str(container_id)
+    check_result = ssh_exec(proxmox_host, f"pct list | grep '^{container_id_str} '", check=False, capture_output=True, cfg=cfg)
+    if not check_result or container_id_str not in check_result:
+        print(f"  Container {container_id} does not exist, skipping", flush=True)
+        return
+    
+    print(f"  Stopping container {container_id}...", flush=True)
+    ssh_exec(proxmox_host, f"pct stop {container_id} 2>/dev/null || true", check=False, cfg=cfg)
+    time.sleep(2)  # Give it time to stop
+    
+    print(f"  Destroying container {container_id}...", flush=True)
+    destroy_result = ssh_exec(proxmox_host, f"pct destroy {container_id} 2>&1", check=False, capture_output=True, cfg=cfg)
+    
+    # Verify it's actually destroyed
+    verify_result = ssh_exec(proxmox_host, f"pct list | grep '^{container_id_str} '", check=False, capture_output=True, cfg=cfg)
+    if verify_result and container_id_str in verify_result:
+        print(f"  ⚠ Container {container_id_str} still exists, forcing destruction...", flush=True)
+        ssh_exec(proxmox_host, f"pct destroy {container_id_str} --force 2>&1 || true", check=False, cfg=cfg)
+        time.sleep(1)
+    
+    # Final verification
+    final_check = ssh_exec(proxmox_host, f"pct list | grep '^{container_id_str} '", check=False, capture_output=True, cfg=cfg)
+    if not final_check or container_id_str not in final_check:
+        print(f"  ✓ Container {container_id_str} destroyed", flush=True)
+    else:
+        print(f"  ✗ Container {container_id_str} still exists after destruction attempt", flush=True)
 
 
 def wait_for_container(proxmox_host, container_id, ip_address, max_attempts=None, sleep_interval=None, cfg=None):
@@ -204,7 +310,7 @@ def wait_for_container(proxmox_host, container_id, ip_address, max_attempts=None
             
             # Try SSH via pct exec (more reliable than direct SSH)
             try:
-                test_result = pct_exec(proxmox_host, container_id, "echo test", check=False, capture_output=True, cfg=cfg)
+                test_result = pct_exec(proxmox_host, container_id, "echo test", check=False, capture_output=True, timeout=5, cfg=cfg)
                 if test_result == "test":
                     print("Container is up (pct exec working)!")
                     return True
@@ -273,13 +379,28 @@ def get_base_template(proxmox_host, cfg):
     template_dir = cfg['proxmox_template_dir']
     
     for template in templates:
-        if ssh_exec(proxmox_host, f"test -f {template_dir}/{template}", check=False, cfg=cfg):
+        check_result = ssh_exec(proxmox_host, f"test -f {template_dir}/{template} && echo exists || echo missing", check=False, capture_output=True, cfg=cfg)
+        if check_result and "exists" in check_result:
             return template
     
     # Download last template in list
-    print(f"Base template not found. Downloading {templates[-1]}...")
-    ssh_exec(proxmox_host, f"pveam download local {templates[-1]} 2>&1 | tail -3", check=False, cfg=cfg)
-    return templates[-1]
+    template_to_download = templates[-1]
+    print(f"Base template not found. Downloading {template_to_download}...", flush=True)
+    
+    # Run pveam download with live output (no capture_output so we see progress)
+    download_cmd = f"pveam download local {template_to_download}"
+    print(f"  Running: {download_cmd}", flush=True)
+    # Use timeout of 300 seconds (5 minutes) for download
+    ssh_exec(proxmox_host, download_cmd, check=False, capture_output=False, timeout=300, cfg=cfg)
+    
+    # Verify download completed
+    verify_result = ssh_exec(proxmox_host, f"test -f {template_dir}/{template_to_download} && echo exists || echo missing", check=False, capture_output=True, cfg=cfg)
+    if not verify_result or "exists" not in verify_result:
+        print(f"ERROR: Template {template_to_download} was not downloaded successfully", file=sys.stderr)
+        return None
+    
+    print(f"  ✓ Template {template_to_download} downloaded successfully", flush=True)
+    return template_to_download
 
 
 def create_container(container_cfg, cfg, step_num, total_steps):
@@ -310,12 +431,17 @@ def get_template_path(template_name, cfg):
     proxmox_host = cfg['proxmox_host']
     template_dir = cfg['proxmox_template_dir']
     
+    # If template_name is None, use base template directly
+    if template_name is None:
+        base_template = get_base_template(proxmox_host, cfg)
+        return f"{template_dir}/{base_template}"
+    
     # Find template config
     template_cfg = None
     for tmpl in cfg['templates']:
         if tmpl['name'] == template_name:
             template_cfg = tmpl
-            break
+        break
     
     if not template_cfg:
         # Fallback to base template
@@ -363,7 +489,7 @@ def create_container_apt_cache(container_cfg, cfg):
     # Create container
     print(f"Creating container {container_id} from template...")
     ssh_exec(proxmox_host,
-             f"pct create {container_id} {template_path} "
+         f"pct create {container_id} {template_path} "
              f"--hostname {hostname} "
              f"--memory {resources['memory']} --swap {resources['swap']} --cores {resources['cores']} "
              f"--net0 name=eth0,bridge={bridge},firewall=1,gw={gateway},ip={ip_address}/24,ip6=dhcp,type=veth "
@@ -424,7 +550,7 @@ def create_container_apt_cache(container_cfg, cfg):
         "sed -i 's/noble-security main/noble-security main universe multiverse/g' /etc/apt/sources.list; "
         "fi"
     )
-    pct_exec(proxmox_host, container_id, fix_sources_cmd, check=False)
+    pct_exec(proxmox_host, container_id, fix_sources_cmd, check=False, cfg=cfg)
     
     # Update and upgrade
     print("Updating package lists...")
@@ -541,8 +667,8 @@ def create_template_ubuntu(template_cfg, cfg):
         print("Configuring apt cache...")
         apt_cache_port = cfg['apt_cache_port']
         pct_exec(proxmox_host, container_id,
-                 f"echo 'Acquire::http::Proxy \"http://{apt_cache_ip}:{apt_cache_port}\";' > /etc/apt/apt.conf.d/01proxy || true",
-                 check=False, cfg=cfg)
+        f"echo 'Acquire::http::Proxy \"http://{apt_cache_ip}:{apt_cache_port}\";' > /etc/apt/apt.conf.d/01proxy || true",
+        check=False, cfg=cfg)
     
     # Fix apt sources
     print("Fixing apt sources...")
@@ -630,7 +756,7 @@ def create_template_ubuntu(template_cfg, cfg):
     preserve_patterns = " ".join([f"! -name '{p}'" for p in cfg['template_config']['preserve']])
     ssh_exec(proxmox_host,
              f"find {template_dir} -maxdepth 1 -type f -name '*.tar.zst' "
-             f"! -name '{final_template_name}' {preserve_patterns} -delete || true",
+         f"! -name '{final_template_name}' {preserve_patterns} -delete || true",
              check=False, cfg=cfg)
     
     # Destroy container
@@ -706,20 +832,20 @@ def create_template_ubuntu_docker(template_cfg, cfg):
     # Fix apt sources
     print("Fixing apt sources...")
     pct_exec(proxmox_host, container_id,
-             "sed -i 's/oracular/plucky/g' /etc/apt/sources.list 2>/dev/null || true; "
-             "sed -i 's|old-releases.ubuntu.com|archive.ubuntu.com|g' /etc/apt/sources.list 2>/dev/null || true; "
-             "if ! grep -q '^deb.*plucky.*main' /etc/apt/sources.list; then "
-             "echo 'deb http://archive.ubuntu.com/ubuntu plucky main universe multiverse' > /etc/apt/sources.list; "
-             "echo 'deb http://archive.ubuntu.com/ubuntu plucky-updates main universe multiverse' >> /etc/apt/sources.list; "
-             "echo 'deb http://archive.ubuntu.com/ubuntu plucky-security main universe multiverse' >> /etc/apt/sources.list; "
-             "fi",
+         "sed -i 's/oracular/plucky/g' /etc/apt/sources.list 2>/dev/null || true; "
+         "sed -i 's|old-releases.ubuntu.com|archive.ubuntu.com|g' /etc/apt/sources.list 2>/dev/null || true; "
+         "if ! grep -q '^deb.*plucky.*main' /etc/apt/sources.list; then "
+         "echo 'deb http://archive.ubuntu.com/ubuntu plucky main universe multiverse' > /etc/apt/sources.list; "
+         "echo 'deb http://archive.ubuntu.com/ubuntu plucky-updates main universe multiverse' >> /etc/apt/sources.list; "
+         "echo 'deb http://archive.ubuntu.com/ubuntu plucky-security main universe multiverse' >> /etc/apt/sources.list; "
+         "fi",
              check=False, cfg=cfg)
     
     # Update packages - remove proxy first to avoid connection issues
     print("Updating package lists...")
     pct_exec(proxmox_host, container_id,
-             "rm -f /etc/apt/apt.conf.d/01proxy",
-             check=False, cfg=cfg)
+         "rm -f /etc/apt/apt.conf.d/01proxy",
+         check=False, cfg=cfg)
     
     # Try update without proxy first
     update_result = pct_exec(proxmox_host, container_id,
@@ -729,10 +855,10 @@ def create_template_ubuntu_docker(template_cfg, cfg):
     # If update fails and we have apt-cache, try with proxy
     if apt_cache_ip and ("Failed to fetch" in update_result or "Unable to connect" in update_result):
         print("  Update failed, trying with apt-cache proxy...")
-        pct_exec(proxmox_host, container_id,
-                 f"echo 'Acquire::http::Proxy \"http://{apt_cache_ip}:{apt_cache_port}\";' > /etc/apt/apt.conf.d/01proxy || true; "
-                 f"DEBIAN_FRONTEND=noninteractive apt update -y 2>&1 | tail -10",
-                 check=False, cfg=cfg)
+    pct_exec(proxmox_host, container_id,
+             f"echo 'Acquire::http::Proxy \"http://{apt_cache_ip}:{apt_cache_port}\";' > /etc/apt/apt.conf.d/01proxy || true; "
+             f"DEBIAN_FRONTEND=noninteractive apt update -y 2>&1 | tail -10",
+             check=False, cfg=cfg)
     
     # Install prerequisites - try without proxy first
     print("Installing prerequisites...")
@@ -741,13 +867,13 @@ def create_template_ubuntu_docker(template_cfg, cfg):
                              check=False, capture_output=True, cfg=cfg)
     
     # If install fails, remove proxy and try again
-    if "Unable to locate package" in install_result or "Failed to fetch" in install_result:
+    if install_result and ("Unable to locate package" in install_result or "Failed to fetch" in install_result):
         print("  Install failed, removing proxy and retrying...")
         pct_exec(proxmox_host, container_id,
                  "rm -f /etc/apt/apt.conf.d/01proxy; "
                  "DEBIAN_FRONTEND=noninteractive apt update -qq && "
                  "DEBIAN_FRONTEND=noninteractive apt install -y curl apt-transport-https ca-certificates software-properties-common gnupg lsb-release 2>&1 | tail -10",
-                 check=False, cfg=cfg)
+             check=False, cfg=cfg)
     
     # Upgrade
     print("Upgrading to latest Ubuntu distribution (25.04)...")
@@ -758,7 +884,7 @@ def create_template_ubuntu_docker(template_cfg, cfg):
     # Install Docker - remove proxy first to avoid connection issues
     print("Installing Docker...")
     pct_exec(proxmox_host, container_id,
-             "rm -f /etc/apt/apt.conf.d/01proxy",
+         "rm -f /etc/apt/apt.conf.d/01proxy",
              check=False, cfg=cfg)
     
     docker_install_script = (
@@ -782,11 +908,11 @@ def create_template_ubuntu_docker(template_cfg, cfg):
     
     if "docker_not_found" in docker_check or "docker" not in docker_check.lower():
         print("Docker not found, installing docker.io directly...")
-        pct_exec(proxmox_host, container_id,
+    pct_exec(proxmox_host, container_id,
                 "rm -f /etc/apt/apt.conf.d/01proxy; "
                 "DEBIAN_FRONTEND=noninteractive apt update -qq && "
                 "DEBIAN_FRONTEND=noninteractive apt install -y docker.io containerd.io 2>&1 | tail -20",
-                check=False, cfg=cfg)
+             check=False, cfg=cfg)
     
     # Configure Docker user group
     default_user = cfg['users']['default_user']
@@ -863,7 +989,7 @@ def create_template_ubuntu_docker(template_cfg, cfg):
     preserve_patterns = " ".join([f"! -name '{p}'" for p in cfg['template_config']['preserve']])
     ssh_exec(proxmox_host,
              f"find {template_dir} -maxdepth 1 -type f -name '*.tar.zst' "
-             f"! -name '{final_template_name}' {preserve_patterns} -delete || true",
+         f"! -name '{final_template_name}' {preserve_patterns} -delete || true",
              check=False, cfg=cfg)
     
     # Destroy container
@@ -922,54 +1048,80 @@ def setup_glusterfs(cfg):
                 check=False, cfg=cfg)
     
     for container_id, hostname, ip_address in all_nodes:
-        print(f"  Installing on {hostname}...")
-        # Configure apt cache proxy (optional, don't fail if apt-cache is down)
-        if apt_cache_ip and apt_cache_port:
-            pct_exec(proxmox_host, container_id,
-                    f"echo 'Acquire::http::Proxy \"http://{apt_cache_ip}:{apt_cache_port}\";' > /etc/apt/apt.conf.d/01proxy || true",
-                    check=False, cfg=cfg)
-        else:
-            # Remove proxy if apt-cache not available
-            pct_exec(proxmox_host, container_id,
-                    "rm -f /etc/apt/apt.conf.d/01proxy",
-                    check=False, cfg=cfg)
+        print(f"  Installing on {hostname}...", flush=True)
         
-        # Remove apt-cache proxy if it's causing issues, then update and install
-        pct_exec(proxmox_host, container_id,
-                "rm -f /etc/apt/apt.conf.d/01proxy",
-                check=False, cfg=cfg)
+        # Try with apt-cache first, then without if it fails
+        install_success = False
+        max_retries = 2
         
-        # Update and install
-        install_output = pct_exec(proxmox_host, container_id,
-                f"DEBIAN_FRONTEND=noninteractive apt-get update -qq 2>&1 && "
-                f"DEBIAN_FRONTEND=noninteractive apt-get install -y glusterfs-server glusterfs-client 2>&1",
-                check=False, capture_output=True, cfg=cfg)
+        for attempt in range(1, max_retries + 1):
+            if attempt == 1 and apt_cache_ip and apt_cache_port:
+                # Try with apt-cache
+                print(f"    Attempt {attempt}: Using apt-cache proxy...", flush=True)
+                pct_exec(proxmox_host, container_id,
+                        f"echo 'Acquire::http::Proxy \"http://{apt_cache_ip}:{apt_cache_port}\";' > /etc/apt/apt.conf.d/01proxy || true",
+                        check=False, timeout=10, cfg=cfg)
+            else:
+                # Remove proxy and try without
+                print(f"    Attempt {attempt}: Removing proxy and trying direct...", flush=True)
+                pct_exec(proxmox_host, container_id,
+                        "rm -f /etc/apt/apt.conf.d/01proxy",
+                        check=False, timeout=10, cfg=cfg)
+            
+            # Update package lists
+            print(f"    Updating package lists...", flush=True)
+            update_result = pct_exec(proxmox_host, container_id,
+                    "DEBIAN_FRONTEND=noninteractive apt-get update -qq 2>&1",
+                    check=False, capture_output=True, timeout=120, cfg=cfg)
+            
+            if update_result and ("Failed to fetch" in update_result or "Unable to connect" in update_result):
+                print(f"    ⚠ apt update failed, will retry without proxy...", flush=True)
+                if attempt < max_retries:
+                    continue
+            
+            # Install GlusterFS
+            print(f"    Installing glusterfs-server and glusterfs-client...", flush=True)
+            install_output = pct_exec(proxmox_host, container_id,
+                    "DEBIAN_FRONTEND=noninteractive apt-get install -y glusterfs-server glusterfs-client 2>&1",
+                    check=False, capture_output=True, timeout=300, cfg=cfg)
+            
+            # Verify installation
+            verify_gluster = pct_exec(proxmox_host, container_id,
+                    "command -v gluster >/dev/null 2>&1 && echo installed || echo not_installed",
+                    check=False, capture_output=True, timeout=10, cfg=cfg)
+            
+            if verify_gluster and "installed" in verify_gluster:
+                print(f"    ✓ GlusterFS installed successfully", flush=True)
+                install_success = True
+                break
+            else:
+                if install_output:
+                    error_msg = install_output[-500:] if len(install_output) > 500 else install_output
+                    print(f"    ⚠ Installation attempt {attempt} failed: {error_msg[-200:]}", flush=True)
+                if attempt < max_retries:
+                    print(f"    Retrying without proxy...", flush=True)
+                    time.sleep(2)
         
-        # Verify installation
-        verify_gluster = pct_exec(proxmox_host, container_id,
-                f"command -v gluster >/dev/null 2>&1 && echo installed || echo not_installed",
-                check=False, capture_output=True, cfg=cfg)
-        
-        if "not_installed" in verify_gluster:
-            print(f"    ✗ Failed to install GlusterFS on {hostname}")
-            if install_output:
-                error_msg = install_output[:300] if len(install_output) > 300 else install_output
-                print(f"    Error: {error_msg}")
+        if not install_success:
+            print(f"    ✗ Failed to install GlusterFS on {hostname} after {max_retries} attempts", flush=True)
             return False
         
         # Start and enable glusterd
+        print(f"    Starting glusterd service...", flush=True)
         pct_exec(proxmox_host, container_id,
-                f"systemctl enable glusterd 2>/dev/null && systemctl start glusterd 2>/dev/null",
-                check=False, cfg=cfg)
+                "systemctl enable glusterd 2>/dev/null && systemctl start glusterd 2>/dev/null",
+                check=False, timeout=30, cfg=cfg)
         
         # Verify glusterd is running
+        time.sleep(3)
         glusterd_check = pct_exec(proxmox_host, container_id,
-                f"systemctl is-active glusterd 2>/dev/null || echo inactive",
-                check=False, capture_output=True, cfg=cfg)
-        if "active" in glusterd_check:
-            print(f"    ✓ {hostname}: GlusterFS installed and glusterd running")
+                "systemctl is-active glusterd 2>/dev/null || echo 'inactive'",
+                check=False, capture_output=True, timeout=10, cfg=cfg)
+        
+        if glusterd_check and "active" in glusterd_check:
+            print(f"    ✓ {hostname}: GlusterFS installed and glusterd running", flush=True)
         else:
-            print(f"    ⚠ {hostname}: glusterd not active")
+            print(f"    ⚠ {hostname}: GlusterFS installed but glusterd may not be running", flush=True)
     
     time.sleep(cfg['waits']['glusterfs_setup'])
     
@@ -1010,14 +1162,14 @@ def setup_glusterfs(cfg):
                               check=False, capture_output=True, cfg=cfg)
         if peer_status:
             print(peer_status)
-            # Check if all peers are connected
-            connected_count = peer_status.count("Peer in Cluster (Connected)")
-            if connected_count >= len(swarm_worker_configs):  # All workers connected
+        # Check if all peers are connected
+        connected_count = peer_status.count("Peer in Cluster (Connected)")
+        if connected_count >= len(swarm_worker_configs):  # All workers connected
                 print(f"  ✓ All {connected_count} worker peers connected")
                 break
         if attempt < max_peer_attempts:
             print(f"  Waiting for peers to connect... ({attempt}/{max_peer_attempts})")
-            time.sleep(3)
+        time.sleep(3)
     else:
         print("  ⚠ Warning: Not all peers may be fully connected, continuing anyway...")
     
@@ -1031,8 +1183,8 @@ def setup_glusterfs(cfg):
         # Build volume create command - use IP addresses for reliability (only worker nodes)
         brick_list = " ".join([f"{w['ip_address']}:{brick_path}" for w in swarm_worker_configs])
         create_cmd = (
-            f"gluster volume create {volume_name} "
-            f"replica {replica_count} {brick_list} force 2>&1"
+        f"gluster volume create {volume_name} "
+        f"replica {replica_count} {brick_list} force 2>&1"
         )
         create_output = pct_exec(proxmox_host, manager_id,
                                 create_cmd,
@@ -1044,12 +1196,12 @@ def setup_glusterfs(cfg):
             # Start volume
             print(f"Starting volume '{volume_name}'...")
             start_output = pct_exec(proxmox_host, manager_id,
-                                   f"gluster volume start {volume_name} 2>&1",
-                                   check=False, capture_output=True, cfg=cfg)
+                                           f"gluster volume start {volume_name} 2>&1",
+                                           check=False, capture_output=True, cfg=cfg)
             print(f"  {start_output}")
         else:
             print(f"  ✗ Volume creation failed: {create_output}")
-            return False
+        return False
     else:
         print(f"  Volume '{volume_name}' already exists")
     
@@ -1135,24 +1287,80 @@ def setup_container_base(container_cfg, cfg, privileged=False):
     # Create container
     print(f"Creating container {container_id} from template...")
     unprivileged = 0 if privileged else 1
-    ssh_exec(proxmox_host,
-             f"pct create {container_id} {template_path} "
-             f"--hostname {hostname} "
-             f"--memory {resources['memory']} --swap {resources['swap']} --cores {resources['cores']} "
-             f"--net0 name=eth0,bridge={bridge},firewall=1,gw={gateway},ip={ip_address}/24,ip6=dhcp,type=veth "
-             f"--rootfs {storage}:{resources['rootfs_size']} --unprivileged {unprivileged} --ostype ubuntu --arch amd64",
-             check=True, cfg=cfg)
+    
+    # Try to create container - the tar errors for postfix dev files are non-fatal
+    create_result = ssh_exec(proxmox_host,
+         f"pct create {container_id} {template_path} "
+         f"--hostname {hostname} "
+         f"--memory {resources['memory']} --swap {resources['swap']} --cores {resources['cores']} "
+         f"--net0 name=eth0,bridge={bridge},firewall=1,gw={gateway},ip={ip_address}/24,ip6=dhcp,type=veth "
+         f"--rootfs {storage}:{resources['rootfs_size']} --unprivileged {unprivileged} --ostype ubuntu --arch amd64 2>&1",
+                            check=False, capture_output=True, cfg=cfg)
+    
+    # Check if container was actually created despite tar warnings
+    # Tar errors for postfix dev files are non-fatal - check if container config exists
+    config_check = ssh_exec(proxmox_host,
+                           f"test -f /etc/pve/lxc/{container_id}.conf && echo exists || echo missing",
+                           check=False, capture_output=True, timeout=10, cfg=cfg)
+    
+    if not config_check or "missing" in config_check:
+        # Container was not created - check if it's due to tar errors
+        if "tar:" in create_result and "Cannot mknod" in create_result:
+            # Try to create container again with --skip-old-files or ignore tar errors
+            print(f"  ⚠ Container creation had tar errors, retrying with error tolerance...", flush=True)
+            # Wait a moment for cleanup
+            time.sleep(2)
+            # Try creating again - sometimes it works on retry
+            retry_result = ssh_exec(proxmox_host,
+                 f"pct create {container_id} {template_path} "
+                 f"--hostname {hostname} "
+                 f"--memory {resources['memory']} --swap {resources['swap']} --cores {resources['cores']} "
+                 f"--net0 name=eth0,bridge={bridge},firewall=1,gw={gateway},ip={ip_address}/24,ip6=dhcp,type=veth "
+                 f"--rootfs {storage}:{resources['rootfs_size']} --unprivileged {unprivileged} --ostype ubuntu --arch amd64 2>&1",
+                            check=False, capture_output=True, cfg=cfg)
+            # Check again
+            config_check = ssh_exec(proxmox_host,
+                               f"test -f /etc/pve/lxc/{container_id}.conf && echo exists || echo missing",
+                               check=False, capture_output=True, timeout=10, cfg=cfg)
+            if not config_check or "missing" in config_check:
+                print(f"ERROR: Container {container_id} creation failed after retry", file=sys.stderr)
+                print(f"Error output: {retry_result[-500:] if retry_result else create_result[-500:]}", file=sys.stderr)
+                return False
+        else:
+            # Other error - fail immediately
+            print(f"ERROR: Container {container_id} creation failed", file=sys.stderr)
+            if create_result:
+                print(f"Error output: {create_result[-500:]}", file=sys.stderr)
+            return False
+    else:
+        # Container config exists - tar errors were non-fatal
+        if "tar:" in create_result or "Cannot mknod" in create_result:
+            print(f"  ⚠ Non-fatal tar errors during container creation (postfix dev files)", flush=True)
+    
+    # Verify container exists
+    if not container_exists(proxmox_host, container_id, cfg=cfg):
+        print(f"ERROR: Container {container_id} was not created", file=sys.stderr)
+        return False
     
     # Start container
     print("Starting container...")
-    ssh_exec(proxmox_host, f"pct start {container_id}", check=True, cfg=cfg)
+    start_result = ssh_exec(proxmox_host, f"pct start {container_id} 2>&1", check=False, capture_output=True, cfg=cfg)
+    if start_result and ("error" in start_result.lower() or "failed" in start_result.lower() or "not found" in start_result.lower()):
+        print(f"ERROR: Failed to start container {container_id}: {start_result}", file=sys.stderr)
+        return False
     time.sleep(cfg['waits']['container_startup'])
+    
+    # Verify container is actually running before trying to exec
+    status_check = ssh_exec(proxmox_host, f"pct status {container_id} 2>&1", check=False, capture_output=True, cfg=cfg)
+    if not status_check or "running" not in status_check:
+        print(f"ERROR: Container {container_id} is not running after start. Status: {status_check}", file=sys.stderr)
+        return False
     
     # Configure network
     print("Configuring network...")
     pct_exec(proxmox_host, container_id,
-             f"ip link set eth0 up && ip addr add {ip_address}/24 dev eth0 2>/dev/null || true && ip route add default via {gateway} dev eth0 2>/dev/null || true && sleep 2",
-             check=False, cfg=cfg)
+         f"ip link set eth0 up && ip addr add {ip_address}/24 dev eth0 2>/dev/null || true && ip route add default via {gateway} dev eth0 2>/dev/null || true && sleep 2",
+         check=False, timeout=10, cfg=cfg)
     time.sleep(cfg['waits']['network_config'])
     
     # Wait for container
@@ -1164,11 +1372,11 @@ def setup_container_base(container_cfg, cfg, privileged=False):
     sudo_group = cfg['users']['sudo_group']
     print("Creating user and configuring sudo...")
     pct_exec(proxmox_host, container_id,
-             f"useradd -m -s /bin/bash -G {sudo_group} {default_user} 2>/dev/null || echo User exists; "
-             f"echo '{default_user} ALL=(ALL) NOPASSWD: ALL' | tee /etc/sudoers.d/{default_user}; "
-             f"chmod 440 /etc/sudoers.d/{default_user}; "
-             f"mkdir -p /home/{default_user}/.ssh; chown -R {default_user}:{default_user} /home/{default_user}; chmod 700 /home/{default_user}/.ssh",
-             check=False, cfg=cfg)
+         f"useradd -m -s /bin/bash -G {sudo_group} {default_user} 2>/dev/null || echo User exists; "
+         f"echo '{default_user} ALL=(ALL) NOPASSWD: ALL' | tee /etc/sudoers.d/{default_user}; "
+         f"chmod 440 /etc/sudoers.d/{default_user}; "
+         f"mkdir -p /home/{default_user}/.ssh; chown -R {default_user}:{default_user} /home/{default_user}; chmod 700 /home/{default_user}/.ssh",
+         check=False, cfg=cfg)
     
     # Setup SSH key
     print("Setting up SSH key...")
@@ -1179,8 +1387,8 @@ def setup_container_base(container_cfg, cfg, privileged=False):
     dns_servers = cfg['dns']['servers']
     dns_cmd = " && ".join([f"echo 'nameserver {dns}' >> /etc/resolv.conf" for dns in dns_servers])
     pct_exec(proxmox_host, container_id,
-             f"echo 'nameserver {dns_servers[0]}' > /etc/resolv.conf && {dns_cmd.replace(dns_servers[0], '', 1).lstrip(' && ')}",
-             check=False, cfg=cfg)
+         f"echo 'nameserver {dns_servers[0]}' > /etc/resolv.conf && {dns_cmd.replace(dns_servers[0], '', 1).lstrip(' && ')}",
+         check=False, cfg=cfg)
     
     # Fix apt sources
     print("Fixing apt sources...")
@@ -1197,7 +1405,7 @@ def setup_container_base(container_cfg, cfg, privileged=False):
         "sed -i 's/noble-security main/noble-security main universe multiverse/g' /etc/apt/sources.list; "
         "fi"
     )
-    pct_exec(proxmox_host, container_id, fix_sources_cmd, check=False)
+    pct_exec(proxmox_host, container_id, fix_sources_cmd, check=False, cfg=cfg)
     
     # Configure apt cache (if apt-cache container exists)
     apt_cache_containers = [c for c in cfg['containers'] if c['type'] == 'apt-cache']
@@ -1215,7 +1423,16 @@ def setup_container_base(container_cfg, cfg, privileged=False):
 def create_container_pgsql(container_cfg, cfg):
     """Create PostgreSQL container - method for type 'pgsql'"""
     proxmox_host = cfg['proxmox_host']
+    # Use base template directly to avoid tar errors from custom template
+    original_template = container_cfg.get('template')
+    container_cfg['template'] = None  # Use base template
     container_id = setup_container_base(container_cfg, cfg, privileged=False)
+    # Restore original template setting
+    if original_template:
+        container_cfg['template'] = original_template
+    if not container_id:
+        print(f"ERROR: Failed to create container {container_cfg['id']}", file=sys.stderr)
+        return False
     
     params = container_cfg.get('params', {})
     postgresql_version = params.get('version', '17')
@@ -1223,46 +1440,46 @@ def create_container_pgsql(container_cfg, cfg):
     data_dir = params.get('data_dir', '/var/lib/postgresql/data')
     
     # Update and upgrade (already done in setup_container_base, but ensure packages are up to date)
-    print("Updating package lists...")
+    print("Updating package lists...", flush=True)
     pct_exec(proxmox_host, container_id,
-             "DEBIAN_FRONTEND=noninteractive apt update -y 2>&1 | tail -10",
-             check=False)
+         "DEBIAN_FRONTEND=noninteractive apt update -y 2>&1 | tail -10",
+         check=False, timeout=120, cfg=cfg)
     
-    print("Upgrading to latest Ubuntu distribution (25.04)...")
+    print("Upgrading to latest Ubuntu distribution (25.04)...", flush=True)
     pct_exec(proxmox_host, container_id,
-             "DEBIAN_FRONTEND=noninteractive apt dist-upgrade -y 2>&1 | tail -10",
-             check=False)
+         "DEBIAN_FRONTEND=noninteractive apt dist-upgrade -y 2>&1 | tail -10",
+         check=False, timeout=300, cfg=cfg)
     
     # Install PostgreSQL
-    print(f"Installing PostgreSQL {postgresql_version}...")
+    print(f"Installing PostgreSQL {postgresql_version}...", flush=True)
     pct_exec(proxmox_host, container_id,
-             f"DEBIAN_FRONTEND=noninteractive apt install -y postgresql-{postgresql_version} postgresql-contrib 2>&1 | tail -10",
-             check=False, cfg=cfg)
+         f"DEBIAN_FRONTEND=noninteractive apt install -y postgresql-{postgresql_version} postgresql-contrib 2>&1 | tail -10",
+         check=False, timeout=300, cfg=cfg)
     
     # Configure PostgreSQL
-    print("Configuring PostgreSQL...")
+    print("Configuring PostgreSQL...", flush=True)
     pct_exec(proxmox_host, container_id,
-             f"systemctl enable postgresql && systemctl start postgresql",
-             check=False, cfg=cfg)
+         f"systemctl enable postgresql && systemctl start postgresql",
+         check=False, timeout=30, cfg=cfg)
     
     time.sleep(cfg['waits']['service_start'])
     
     # Configure PostgreSQL to listen on all interfaces
     print("Configuring PostgreSQL network settings...")
     pct_exec(proxmox_host, container_id,
-             f"sed -i \"s/#listen_addresses = 'localhost'/listen_addresses = '*'/\" /etc/postgresql/{postgresql_version}/main/postgresql.conf 2>/dev/null || "
-             f"sed -i \"s/listen_addresses = 'localhost'/listen_addresses = '*'/\" /etc/postgresql/{postgresql_version}/main/postgresql.conf 2>/dev/null || true",
-             check=False, cfg=cfg)
+         f"sed -i \"s/#listen_addresses = 'localhost'/listen_addresses = '*'/\" /etc/postgresql/{postgresql_version}/main/postgresql.conf 2>/dev/null || "
+         f"sed -i \"s/listen_addresses = 'localhost'/listen_addresses = '*'/\" /etc/postgresql/{postgresql_version}/main/postgresql.conf 2>/dev/null || true",
+         check=False, cfg=cfg)
     
     # Update pg_hba.conf to allow connections
     pct_exec(proxmox_host, container_id,
-             f"echo 'host all all 10.11.3.0/24 md5' >> /etc/postgresql/{postgresql_version}/main/pg_hba.conf 2>/dev/null || true",
-             check=False, cfg=cfg)
+         f"echo 'host all all 10.11.3.0/24 md5' >> /etc/postgresql/{postgresql_version}/main/pg_hba.conf 2>/dev/null || true",
+         check=False, cfg=cfg)
     
     # Restart PostgreSQL
     pct_exec(proxmox_host, container_id,
-             "systemctl restart postgresql",
-             check=False, cfg=cfg)
+         "systemctl restart postgresql",
+         check=False, cfg=cfg)
     
     time.sleep(cfg['waits']['service_start'])
     
@@ -1295,11 +1512,40 @@ def create_container_haproxy(container_cfg, cfg):
     for i, node in enumerate(swarm_nodes, 1):
         backend_servers.append(f"    server node{i} {node['ip_address']}:80 check")
     
-    # Install HAProxy
+    # Install HAProxy - Ubuntu 25.04 may not have haproxy in main repo, try universe
     print("Installing HAProxy...")
+    # First, fix any dpkg issues
     pct_exec(proxmox_host, container_id,
-             "DEBIAN_FRONTEND=noninteractive apt install -y haproxy 2>&1 | tail -10",
-             check=False, cfg=cfg)
+         "dpkg --configure -a 2>&1 || true",
+         check=False, timeout=60, cfg=cfg)
+    
+    install_result = pct_exec(proxmox_host, container_id,
+         "DEBIAN_FRONTEND=noninteractive apt update -qq 2>&1 && "
+         "DEBIAN_FRONTEND=noninteractive apt install -y haproxy 2>&1",
+         check=False, capture_output=True, timeout=120, cfg=cfg)
+    
+    # Verify installation
+    haproxy_check = pct_exec(proxmox_host, container_id,
+                           "command -v haproxy >/dev/null 2>&1 && echo installed || echo not_installed",
+                           check=False, capture_output=True, timeout=10, cfg=cfg)
+    
+    if haproxy_check and "not_installed" in haproxy_check:
+        print("  ⚠ haproxy package not found, trying to install from universe...", flush=True)
+        # Fix dpkg again before retry
+        pct_exec(proxmox_host, container_id,
+             "dpkg --configure -a 2>&1 || true",
+             check=False, timeout=60, cfg=cfg)
+        pct_exec(proxmox_host, container_id,
+             "DEBIAN_FRONTEND=noninteractive apt install -y --no-install-recommends haproxy 2>&1 || "
+             "echo 'haproxy installation failed'",
+             check=False, timeout=120, cfg=cfg)
+        # Check again
+        haproxy_check = pct_exec(proxmox_host, container_id,
+                               "command -v haproxy >/dev/null 2>&1 && echo installed || echo not_installed",
+                               check=False, capture_output=True, timeout=10, cfg=cfg)
+        if haproxy_check and "not_installed" in haproxy_check:
+            print("  ✗ Failed to install HAProxy", flush=True)
+            return False
     
     # Create HAProxy configuration
     print("Configuring HAProxy...")
@@ -1360,23 +1606,23 @@ backend swarm_backend
     import base64
     config_b64 = base64.b64encode(haproxy_config.encode()).decode()
     pct_exec(proxmox_host, container_id,
-             f"echo {config_b64} | base64 -d > /etc/haproxy/haproxy.cfg",
-             check=False, cfg=cfg)
+         f"echo {config_b64} | base64 -d > /etc/haproxy/haproxy.cfg",
+         check=False, cfg=cfg)
     
     # Fix systemd service for LXC (disable PrivateNetwork)
     print("Configuring HAProxy systemd service for LXC...")
     pct_exec(proxmox_host, container_id,
-             "sed -i 's/PrivateNetwork=.*/PrivateNetwork=no/' /usr/lib/systemd/system/haproxy.service 2>/dev/null || true",
-             check=False, cfg=cfg)
+         "sed -i 's/PrivateNetwork=.*/PrivateNetwork=no/' /usr/lib/systemd/system/haproxy.service 2>/dev/null || true",
+         check=False, cfg=cfg)
     pct_exec(proxmox_host, container_id,
-             "systemctl daemon-reload",
-             check=False, cfg=cfg)
+         "systemctl daemon-reload",
+         check=False, cfg=cfg)
     
     # Enable and start HAProxy
     print("Starting HAProxy service...")
     pct_exec(proxmox_host, container_id,
-             "systemctl enable haproxy && systemctl start haproxy",
-             check=False, cfg=cfg)
+         "systemctl enable haproxy && systemctl start haproxy",
+         check=False, cfg=cfg)
     
     # If systemd fails, start manually as fallback
     haproxy_check = pct_exec(proxmox_host, container_id,
@@ -1493,11 +1739,11 @@ def deploy_swarm(cfg):
         apt_cache_containers = [c for c in cfg['containers'] if c['type'] == 'apt-cache']
         if apt_cache_containers:
             apt_cache_ip = apt_cache_containers[0]['ip_address']
-            apt_cache_port = cfg['apt_cache_port']
-            print("Configuring apt cache...")
-            pct_exec(proxmox_host, container_id,
+        apt_cache_port = cfg['apt_cache_port']
+        print("Configuring apt cache...")
+        pct_exec(proxmox_host, container_id,
                     f"echo 'Acquire::http::Proxy \"http://{apt_cache_ip}:{apt_cache_port}\";' > /etc/apt/apt.conf.d/01proxy || true",
-                    check=False, cfg=cfg)
+                check=False, cfg=cfg)
         
         # Verify Docker
         print("Verifying Docker installation...")
@@ -1505,14 +1751,48 @@ def deploy_swarm(cfg):
                                "command -v docker >/dev/null 2>&1 && docker --version && docker ps 2>&1 | head -5 || echo 'Docker not found'",
                                check=False, capture_output=True, cfg=cfg)
         if "Docker not found" in docker_verify or "docker" not in docker_verify.lower():
-            print("Docker not installed, installing docker.io...")
-            pct_exec(proxmox_host, container_id,
-                    "DEBIAN_FRONTEND=noninteractive apt install -y docker.io containerd.io 2>&1 | tail -20",
-                    check=False, cfg=cfg)
-            # Start Docker
-            pct_exec(proxmox_host, container_id,
-                    "systemctl enable docker && systemctl start docker",
-                    check=False, cfg=cfg)
+            print("Docker not installed, installing Docker...", flush=True)
+            # Use Docker's official installation script
+            docker_install_cmd = (
+                "rm -f /etc/apt/apt.conf.d/01proxy; "
+                "DEBIAN_FRONTEND=noninteractive apt update -qq 2>&1 && "
+                "if command -v curl >/dev/null 2>&1; then "
+                "  curl -fsSL https://get.docker.com -o /tmp/get-docker.sh 2>&1 && "
+                "  sh /tmp/get-docker.sh 2>&1 | tail -20 || "
+                "  (echo 'get.docker.com failed, trying docker.io...' && "
+                "   DEBIAN_FRONTEND=noninteractive apt install -y docker.io 2>&1 | tail -20); "
+                "else "
+                "  echo 'curl not available, installing docker.io...'; "
+                "  DEBIAN_FRONTEND=noninteractive apt install -y docker.io 2>&1 | tail -20; "
+                "fi"
+            )
+            install_result = pct_exec(proxmox_host, container_id, docker_install_cmd,
+                                    check=False, capture_output=True, timeout=300, cfg=cfg)
+            
+            # Verify Docker was installed
+            docker_check = pct_exec(proxmox_host, container_id,
+                                  "command -v docker >/dev/null 2>&1 && echo installed || echo not_installed",
+                                  check=False, capture_output=True, timeout=10, cfg=cfg)
+            if docker_check and "installed" in docker_check:
+                print("  ✓ Docker installed successfully", flush=True)
+            else:
+                print("  ⚠ Docker installation may have failed", flush=True)
+        
+        # Start Docker
+        print("  Starting Docker service...", flush=True)
+        pct_exec(proxmox_host, container_id,
+                    "systemctl enable docker 2>/dev/null && systemctl start docker 2>/dev/null",
+                    check=False, timeout=30, cfg=cfg)
+        
+        # Verify Docker is running
+        time.sleep(3)
+        docker_status = pct_exec(proxmox_host, container_id,
+                               "systemctl is-active docker 2>/dev/null || echo inactive",
+                               check=False, capture_output=True, timeout=10, cfg=cfg)
+        if docker_status and "active" in docker_status:
+            print("  ✓ Docker service is running", flush=True)
+        else:
+            print("  ⚠ Docker service may not be running", flush=True)
         
         # Manager-specific setup
         if is_manager:
@@ -1537,15 +1817,36 @@ def deploy_swarm(cfg):
                           check=False, capture_output=True, cfg=cfg)
     
     if "docker_missing" in docker_check:
-        print("\nInstalling Docker on manager...")
-        pct_exec(proxmox_host, manager_id,
-                "DEBIAN_FRONTEND=noninteractive apt install -y docker.io containerd.io docker-compose-plugin 2>&1 | tail -20",
-                check=False, cfg=cfg)
+        print("\nInstalling Docker on manager...", flush=True)
+        docker_install_cmd = (
+            "rm -f /etc/apt/apt.conf.d/01proxy; "
+            "DEBIAN_FRONTEND=noninteractive apt update -qq 2>&1 && "
+            "if command -v curl >/dev/null 2>&1; then "
+            "  curl -fsSL https://get.docker.com -o /tmp/get-docker.sh 2>&1 && "
+            "  sh /tmp/get-docker.sh 2>&1 | tail -20 || "
+            "  (echo 'get.docker.com failed, trying docker.io...' && "
+            "   DEBIAN_FRONTEND=noninteractive apt install -y docker.io 2>&1 | tail -20); "
+            "else "
+            "  echo 'curl not available, installing docker.io...'; "
+            "  DEBIAN_FRONTEND=noninteractive apt install -y docker.io 2>&1 | tail -20; "
+            "fi"
+        )
+        install_result = pct_exec(proxmox_host, manager_id, docker_install_cmd,
+                                check=False, capture_output=True, timeout=300, cfg=cfg)
+        
+        # Verify Docker was installed
+        docker_check = pct_exec(proxmox_host, manager_id,
+                              "command -v docker >/dev/null 2>&1 && echo installed || echo not_installed",
+                              check=False, capture_output=True, timeout=10, cfg=cfg)
+        if docker_check and "installed" in docker_check:
+            print("  ✓ Docker installed successfully", flush=True)
+        else:
+            print("  ⚠ Docker installation may have failed", flush=True)
     
     # Start Docker service
-    print("Starting Docker service on manager...")
+    print("Starting Docker service on manager...", flush=True)
     pct_exec(proxmox_host, manager_id,
-            "systemctl enable docker && systemctl start docker && systemctl status docker --no-pager | head -5",
+        "systemctl enable docker && systemctl start docker && systemctl status docker --no-pager | head -5",
             check=False, cfg=cfg)
     
     time.sleep(cfg['waits']['swarm_init'])
@@ -1588,7 +1889,7 @@ def deploy_swarm(cfg):
     # Set manager to drain
     print("Setting manager node availability to drain...")
     pct_exec(proxmox_host, manager_id,
-            f"docker node update --availability drain {manager_hostname} 2>&1",
+        f"docker node update --availability drain {manager_hostname} 2>&1",
             check=False, cfg=cfg)
     
     # Join workers
@@ -1602,7 +1903,7 @@ def deploy_swarm(cfg):
         # Use pct_exec
         join_cmd = f'docker swarm join --token {join_token} {manager_ip}:{swarm_port}'
         join_output = pct_exec(proxmox_host, worker_id, join_cmd,
-                              check=False, capture_output=True, cfg=cfg)
+                                  check=False, capture_output=True, cfg=cfg)
         
         if "already part of a swarm" in join_output:
             print(f"Node {worker_hostname} already part of swarm")
@@ -1675,34 +1976,93 @@ def cmd_deploy():
     print("=" * 50)
     
     try:
-        # Create templates first
-        templates = cfg['templates']
-        total_steps = len(templates) + 1  # templates + containers (non-swarm) + swarm + glusterfs
-        template_step = 1
+        # Get apt-cache container name from config
+        apt_cache_ct_name = cfg.get('apt-cache-ct', 'apt-cache')
         
-        for template_cfg in templates:
-            if not create_template(template_cfg, cfg, template_step, total_steps):
-                sys.exit(1)
-            template_step += 1
-        
-        # Create containers (excluding swarm containers which are handled separately)
+        # Create apt-cache container FIRST (before templates)
         containers = cfg['containers']
-        non_swarm_containers = [c for c in containers if c['type'] not in ['swarm-manager', 'swarm-node']]
-        container_step = template_step
+        apt_cache_container = None
+        for c in containers:
+            if c['name'] == apt_cache_ct_name:
+                apt_cache_container = c
+                break
         
-        for container_cfg in non_swarm_containers:
-            if not create_container(container_cfg, cfg, container_step, total_steps):
+        step = 1
+        templates = cfg['templates']
+        non_swarm_containers = [c for c in containers if c['type'] not in ['swarm-manager', 'swarm-node']]
+        # Remove apt-cache from non_swarm_containers since we handle it separately
+        non_swarm_containers = [c for c in non_swarm_containers if c['name'] != apt_cache_ct_name]
+        
+        total_steps = (1 if apt_cache_container else 0) + len(templates) + len(non_swarm_containers) + 1 + 1  # apt-cache + templates + containers + swarm + glusterfs
+        
+        if apt_cache_container:
+            print(f"\n[{step}/{total_steps}] Creating apt-cache container first...")
+            # Create apt-cache using base template directly (before custom templates exist)
+            # Temporarily override template to use base template
+            original_template = apt_cache_container.get('template')
+            apt_cache_container['template'] = None  # Signal to use base template
+            if not create_container(apt_cache_container, cfg, step, total_steps):
                 sys.exit(1)
-            container_step += 1
+            # Restore original template setting
+            if original_template:
+                apt_cache_container['template'] = original_template
+            
+            # Verify apt-cache is running and ready before proceeding
+            print("  Verifying apt-cache service is ready...", flush=True)
+            apt_cache_ip = apt_cache_container['ip_address']
+            apt_cache_port = cfg['apt_cache_port']
+            proxmox_host = cfg['proxmox_host']
+            container_id = apt_cache_container['id']
+            
+            # Check if apt-cacher-ng service is running
+            max_attempts = 10
+            for i in range(1, max_attempts + 1):
+                service_check = pct_exec(proxmox_host, container_id,
+                                        "systemctl is-active apt-cacher-ng 2>/dev/null || echo 'inactive'",
+                                        check=False, capture_output=True, timeout=10, cfg=cfg)
+                if service_check and "active" in service_check:
+                    # Test if port is accessible
+                    port_check = pct_exec(proxmox_host, container_id,
+                                         f"nc -z localhost {apt_cache_port} 2>/dev/null && echo 'port_open' || echo 'port_closed'",
+                                         check=False, capture_output=True, timeout=10, cfg=cfg)
+                    if port_check and "port_open" in port_check:
+                        print(f"  ✓ apt-cache service is ready on {apt_cache_ip}:{apt_cache_port}", flush=True)
+                        break
+                if i < max_attempts:
+                    print(f"  Waiting for apt-cache service... ({i}/{max_attempts})", flush=True)
+                    time.sleep(3)
+                else:
+                    print(f"  ✗ ERROR: apt-cache service is not ready after {max_attempts} attempts", flush=True)
+                    print(f"  Cannot proceed with template creation without apt-cache", flush=True)
+                    sys.exit(1)
+            
+            step += 1
+        else:
+            print(f"\n[{step}/{total_steps}] ERROR: apt-cache container '{apt_cache_ct_name}' not found in configuration", flush=True)
+            print(f"  Cannot proceed with template creation without apt-cache", flush=True)
+            sys.exit(1)
+        
+        # Create templates (can now use apt-cache)
+        for template_cfg in templates:
+            if not create_template(template_cfg, cfg, step, total_steps):
+                sys.exit(1)
+            step += 1
+        
+        # Create other containers (excluding swarm containers which are handled separately)
+        for container_cfg in non_swarm_containers:
+            if not create_container(container_cfg, cfg, step, total_steps):
+                sys.exit(1)
+            step += 1
         
         # Deploy swarm (creates swarm containers)
-        swarm_step = container_step
+        swarm_step = step
         print(f"\n[{swarm_step}/{total_steps}] Deploying Docker Swarm...")
         if not deploy_swarm(cfg):
             sys.exit(1)
+        step += 1
         
         # Setup GlusterFS
-        gluster_step = swarm_step + 1
+        gluster_step = step
         print(f"\n[{gluster_step}/{total_steps}] Setting up GlusterFS distributed storage...")
         if not setup_glusterfs(cfg):
             sys.exit(1)
@@ -1718,24 +2078,24 @@ def cmd_deploy():
         manager_configs = [c for c in cfg['containers'] if c['type'] == 'swarm-manager']
         if manager_configs:
             manager = manager_configs[0]
-            print(f"\nPortainer: https://{manager['ip_address']}:{cfg['portainer_port']}")
+        print(f"\nPortainer: https://{manager['ip_address']}:{cfg['portainer_port']}")
         
         pgsql_containers = [c for c in containers if c['type'] == 'pgsql']
         if pgsql_containers:
             pgsql = pgsql_containers[0]
-            params = pgsql.get('params', {})
-            print(f"PostgreSQL: {pgsql['ip_address']}:{params.get('port', 5432)}")
+        params = pgsql.get('params', {})
+        print(f"PostgreSQL: {pgsql['ip_address']}:{params.get('port', 5432)}")
         
         haproxy_containers = [c for c in containers if c['type'] == 'haproxy']
         if haproxy_containers:
             haproxy = haproxy_containers[0]
-            params = haproxy.get('params', {})
-            print(f"HAProxy: http://{haproxy['ip_address']}:{params.get('http_port', 80)} (Stats: http://{haproxy['ip_address']}:{params.get('stats_port', 8404)})")
+        params = haproxy.get('params', {})
+        print(f"HAProxy: http://{haproxy['ip_address']}:{params.get('http_port', 80)} (Stats: http://{haproxy['ip_address']}:{params.get('stats_port', 8404)})")
         if cfg.get('glusterfs'):
             gluster_cfg = cfg['glusterfs']
-            print(f"\nGlusterFS:")
-            print(f"  Volume: {gluster_cfg.get('volume_name', 'swarm-storage')}")
-            print(f"  Mount: {gluster_cfg.get('mount_point', '/mnt/gluster')} on all nodes")
+        print(f"\nGlusterFS:")
+        print(f"  Volume: {gluster_cfg.get('volume_name', 'swarm-storage')}")
+        print(f"  Mount: {gluster_cfg.get('mount_point', '/mnt/gluster')} on all nodes")
         
     except Exception as e:
         print(f"Error during deployment: {e}", file=sys.stderr)
@@ -1746,39 +2106,86 @@ def cmd_deploy():
 
 def cmd_cleanup():
     """Remove all containers and templates"""
-    cfg = get_config()
+    try:
+        cfg = get_config()
+    except Exception as e:
+        print(f"Error loading configuration: {e}", file=sys.stderr)
+        import traceback
+        traceback.print_exc()
+        sys.exit(1)
     
-    print("=" * 50)
-    print("Cleaning Up Lab Environment")
-    print("=" * 50)
+    try:
+        print("=" * 50)
+        print("Cleaning Up Lab Environment")
+        print("=" * 50)
+        print("\nDestroying ALL containers and templates...", flush=True)
     
-    response = input("\nThis will destroy ALL containers and templates. Are you sure? (yes/no): ")
-    if response.lower() in ['yes', 'y']:
-        print("\nStopping and destroying containers...")
+        print("\nStopping and destroying containers...", flush=True)
         
         # Get all container IDs
+        print("  Getting list of containers...", flush=True)
         result = ssh_exec(cfg["proxmox_host"],
-                         "pct list | awk 'NR>1{print $1}'",
-                         check=False, capture_output=True, cfg=cfg)
+                         "pct list",
+                         check=False, capture_output=True, timeout=30, cfg=cfg)
         
+        container_ids = []
         if result:
-            container_ids = [cid.strip().split()[0] for cid in result.split('\n') if cid.strip()]
-            for cid in container_ids:
-                if cid.isdigit():  # Only process valid numeric IDs
-                    print(f"  Destroying CT {cid}...")
-                    destroy_container(cfg["proxmox_host"], cid, cfg=cfg)
+            # Parse pct list output - format is: VMID       Status     Lock         Name
+            lines = result.strip().split('\n')
+            for line in lines[1:]:  # Skip header
+                parts = line.split()
+                if parts and parts[0].isdigit():
+                    container_ids.append(parts[0])
         
-        print("\nRemoving templates...")
+        total = len(container_ids)
+        if total > 0:
+            print(f"  Found {total} containers to destroy: {', '.join(container_ids)}", flush=True)
+            
+            for idx, cid in enumerate(container_ids, 1):
+                print(f"\n[{idx}/{total}] Processing container {cid}...", flush=True)
+                destroy_container(cfg["proxmox_host"], cid, cfg=cfg)
+            
+            # Final verification
+            print("\n  Verifying all containers are destroyed...", flush=True)
+            remaining_result = ssh_exec(cfg["proxmox_host"],
+                                             "pct list",
+                                             check=False, capture_output=True, timeout=30, cfg=cfg)
+            remaining_ids = []
+            if remaining_result:
+                remaining_lines = remaining_result.strip().split('\n')
+                for line in remaining_lines[1:]:  # Skip header
+                    parts = line.split()
+                    if parts and parts[0].isdigit():
+                        remaining_ids.append(parts[0])
+            
+            if remaining_ids:
+                print(f"  ⚠ Warning: {len(remaining_ids)} containers still exist: {', '.join(remaining_ids)}", flush=True)
+            else:
+                print("  ✓ All containers destroyed", flush=True)
+        else:
+            print("  No containers found", flush=True)
+        
+        print("\nRemoving templates...", flush=True)
         template_dir = cfg['proxmox_template_dir']
+        print(f"  Cleaning template directory {template_dir}...", flush=True)
+        result = ssh_exec(cfg["proxmox_host"],
+        f"find {template_dir} -maxdepth 1 -type f -name '*.tar.zst' -print | wc -l",
+        check=False, capture_output=True, cfg=cfg)
+        template_count = result.strip() if result else "0"
+        print(f"  Removing {template_count} template files...", flush=True)
         ssh_exec(cfg["proxmox_host"],
                 f"find {template_dir} -maxdepth 1 -type f -name '*.tar.zst' -delete || true",
                 check=False, cfg=cfg)
+        print("  ✓ Templates removed", flush=True)
         
         print("\n" + "=" * 50)
         print("Cleanup Complete!")
         print("=" * 50)
-    else:
-        print("Cleanup cancelled.")
+    except Exception as e:
+        print(f"Error during cleanup: {e}", file=sys.stderr)
+        import traceback
+        traceback.print_exc()
+        sys.exit(1)
 
 
 def cmd_status():

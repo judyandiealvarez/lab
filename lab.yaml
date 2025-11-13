@@ -2,6 +2,8 @@
 # Network configuration
 network: "10.11.3.0/24"
 
+apt-cache-ct: apt-cache 
+
 # Template generation configuration
 templates:
   - name: ubuntu-tmpl
