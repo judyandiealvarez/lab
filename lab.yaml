@@ -70,6 +70,25 @@ ct:
       http_port: 80
       https_port: 443
       stats_port: 8404
+  - name: dns
+    id: 3019
+    ip: 19  # Last octet only
+    hostname: "dns"
+    type: dns
+    template: docker-tmpl
+    resources:
+      memory: 2048
+      swap: 2048
+      cores: 4
+      rootfs_size: 20
+    params:
+      dns_port: 53
+      web_port: 80
+      postgres_host: "10.11.3.18"
+      postgres_port: 5432
+      postgres_db: "dns_server"
+      postgres_user: "postgres"
+      postgres_password: "postgres"
   - name: swarm-manager
     id: 3005
     ip: 5  # Last octet only
