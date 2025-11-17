@@ -1,14 +1,15 @@
 """
 Configuration data model - class-based representation of lab.yaml
 """
+
 from dataclasses import dataclass, field
-from typing import List, Dict, Optional, Any
-from pathlib import Path
+from typing import Any, Dict, List, Optional
 
 
 @dataclass
 class ContainerResources:
     """Container resource allocation"""
+
     memory: int
     swap: int
     cores: int
@@ -16,8 +17,9 @@ class ContainerResources:
 
 
 @dataclass
-class ContainerConfig:
+class ContainerConfig:  # pylint: disable=too-many-instance-attributes
     """Container configuration"""
+
     name: str
     id: int
     ip: int  # Last octet only
@@ -30,8 +32,9 @@ class ContainerConfig:
 
 
 @dataclass
-class TemplateConfig:
+class TemplateConfig:  # pylint: disable=too-many-instance-attributes
     """Template configuration"""
+
     name: str
     id: int
     ip: int  # Last octet only
@@ -44,6 +47,7 @@ class TemplateConfig:
 @dataclass
 class SwarmConfig:
     """Docker Swarm configuration"""
+
     managers: List[int] = field(default_factory=list)
     workers: List[int] = field(default_factory=list)
 
@@ -51,6 +55,7 @@ class SwarmConfig:
 @dataclass
 class ProxmoxConfig:
     """Proxmox configuration"""
+
     host: str
     storage: str
     bridge: str
@@ -61,6 +66,7 @@ class ProxmoxConfig:
 @dataclass
 class ServiceConfig:
     """Service configuration"""
+
     port: Optional[int] = None
     image: Optional[str] = None
     http_port: Optional[int] = None
@@ -71,6 +77,7 @@ class ServiceConfig:
 @dataclass
 class ServicesConfig:
     """All services configuration"""
+
     apt_cache: ServiceConfig
     docker_swarm: ServiceConfig
     portainer: ServiceConfig
@@ -81,6 +88,7 @@ class ServicesConfig:
 @dataclass
 class UsersConfig:
     """User configuration"""
+
     default_user: str
     sudo_group: str
 
@@ -88,12 +96,14 @@ class UsersConfig:
 @dataclass
 class DNSConfig:
     """DNS configuration"""
+
     servers: List[str]
 
 
 @dataclass
 class DockerConfig:
     """Docker configuration"""
+
     version: str
     repository: str
     release: str
@@ -103,6 +113,7 @@ class DockerConfig:
 @dataclass
 class TemplatePatternsConfig:
     """Template patterns configuration"""
+
     base: List[str]
     patterns: Dict[str, str]
     preserve: List[str]
@@ -111,13 +122,15 @@ class TemplatePatternsConfig:
 @dataclass
 class SSHConfig:
     """SSH configuration"""
+
     connect_timeout: int
     batch_mode: bool
 
 
 @dataclass
-class WaitsConfig:
+class WaitsConfig:  # pylint: disable=too-many-instance-attributes
     """Wait/retry configuration"""
+
     container_startup: int
     container_ready_max_attempts: int
     container_ready_sleep: int
@@ -131,6 +144,7 @@ class WaitsConfig:
 @dataclass
 class GlusterFSConfig:
     """GlusterFS configuration"""
+
     volume_name: str
     brick_path: str
     mount_point: str
@@ -140,6 +154,7 @@ class GlusterFSConfig:
 @dataclass
 class TimeoutsConfig:
     """Timeout configuration"""
+
     apt_cache: int
     ubuntu_template: int
     docker_template: int
@@ -147,8 +162,9 @@ class TimeoutsConfig:
 
 
 @dataclass
-class LabConfig:
+class LabConfig:  # pylint: disable=too-many-instance-attributes
     """Main lab configuration class"""
+
     network: str
     proxmox: ProxmoxConfig
     containers: List[ContainerConfig]
@@ -164,157 +180,175 @@ class LabConfig:
     timeouts: TimeoutsConfig
     glusterfs: Optional[GlusterFSConfig] = None
     apt_cache_ct: str = "apt-cache"
-    
+
     # Computed fields
     network_base: Optional[str] = None
     gateway: Optional[str] = None
     swarm_managers: List[ContainerConfig] = field(default_factory=list)
     swarm_workers: List[ContainerConfig] = field(default_factory=list)
-    
+
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> 'LabConfig':
+    def from_dict(cls, data: Dict[str, Any]) -> "LabConfig":  # pylint: disable=too-many-locals
         """Create LabConfig from dictionary (loaded from YAML)"""
+
         # Helper to create ContainerResources from dict
         def make_resources(res_dict: Optional[Dict]) -> Optional[ContainerResources]:
             if not res_dict:
                 return None
             return ContainerResources(
-                memory=res_dict['memory'],
-                swap=res_dict['swap'],
-                cores=res_dict['cores'],
-                rootfs_size=res_dict['rootfs_size']
+                memory=res_dict["memory"],
+                swap=res_dict["swap"],
+                cores=res_dict["cores"],
+                rootfs_size=res_dict["rootfs_size"],
             )
-        
+
         # Parse containers
         containers = []
-        for ct in data.get('ct', []):
-            containers.append(ContainerConfig(
-                name=ct['name'],
-                id=ct['id'],
-                ip=ct['ip'],
-                hostname=ct['hostname'],
-                type=ct['type'],
-                template=ct.get('template'),
-                resources=make_resources(ct.get('resources')),
-                params=ct.get('params', {})
-            ))
-        
+        for ct in data.get("ct", []):
+            containers.append(
+                ContainerConfig(
+                    name=ct["name"],
+                    id=ct["id"],
+                    ip=ct["ip"],
+                    hostname=ct["hostname"],
+                    type=ct["type"],
+                    template=ct.get("template"),
+                    resources=make_resources(ct.get("resources")),
+                    params=ct.get("params", {}),
+                )
+            )
+
         # Parse templates
         templates = []
-        for tmpl in data.get('templates', []):
-            templates.append(TemplateConfig(
-                name=tmpl['name'],
-                id=tmpl['id'],
-                ip=tmpl['ip'],
-                hostname=tmpl['hostname'],
-                type=tmpl['type'],
-                resources=make_resources(tmpl.get('resources'))
-            ))
-        
+        for tmpl in data.get("templates", []):
+            templates.append(
+                TemplateConfig(
+                    name=tmpl["name"],
+                    id=tmpl["id"],
+                    ip=tmpl["ip"],
+                    hostname=tmpl["hostname"],
+                    type=tmpl["type"],
+                    resources=make_resources(tmpl.get("resources")),
+                )
+            )
+
         # Parse swarm
-        swarm_data = data.get('swarm', {})
+        swarm_data = data.get("swarm", {})
         swarm = SwarmConfig(
-            managers=[m['id'] if isinstance(m, dict) else m for m in swarm_data.get('managers', [])],
-            workers=[w['id'] if isinstance(w, dict) else w for w in swarm_data.get('workers', [])]
+            managers=[
+                m["id"] if isinstance(m, dict) else m
+                for m in swarm_data.get("managers", [])
+            ],
+            workers=[
+                w["id"] if isinstance(w, dict) else w
+                for w in swarm_data.get("workers", [])
+            ],
         )
-        
+
         # Parse proxmox
-        proxmox_data = data['proxmox']
+        proxmox_data = data["proxmox"]
         proxmox = ProxmoxConfig(
-            host=proxmox_data['host'],
-            storage=proxmox_data['storage'],
-            bridge=proxmox_data['bridge'],
-            template_dir=proxmox_data['template_dir'],
-            gateway_octet=proxmox_data['gateway_octet']
+            host=proxmox_data["host"],
+            storage=proxmox_data["storage"],
+            bridge=proxmox_data["bridge"],
+            template_dir=proxmox_data["template_dir"],
+            gateway_octet=proxmox_data["gateway_octet"],
         )
-        
+
         # Parse services
-        services_data = data['services']
+        services_data = data["services"]
         services = ServicesConfig(
-            apt_cache=ServiceConfig(port=services_data['apt_cache']['port']),
-            docker_swarm=ServiceConfig(port=services_data['docker_swarm']['port']),
+            apt_cache=ServiceConfig(port=services_data["apt_cache"]["port"]),
+            docker_swarm=ServiceConfig(port=services_data["docker_swarm"]["port"]),
             portainer=ServiceConfig(
-                port=services_data['portainer']['port'],
-                image=services_data['portainer']['image']
+                port=services_data["portainer"]["port"],
+                image=services_data["portainer"]["image"],
             ),
-            postgresql=ServiceConfig(port=services_data.get('postgresql', {}).get('port')) if 'postgresql' in services_data else None,
-            haproxy=ServiceConfig(
-                http_port=services_data.get('haproxy', {}).get('http_port'),
-                https_port=services_data.get('haproxy', {}).get('https_port'),
-                stats_port=services_data.get('haproxy', {}).get('stats_port')
-            ) if 'haproxy' in services_data else None
+            postgresql=(
+                ServiceConfig(port=services_data.get("postgresql", {}).get("port"))
+                if "postgresql" in services_data
+                else None
+            ),
+            haproxy=(
+                ServiceConfig(
+                    http_port=services_data.get("haproxy", {}).get("http_port"),
+                    https_port=services_data.get("haproxy", {}).get("https_port"),
+                    stats_port=services_data.get("haproxy", {}).get("stats_port"),
+                )
+                if "haproxy" in services_data
+                else None
+            ),
         )
-        
+
         # Parse users
-        users_data = data['users']
+        users_data = data["users"]
         users = UsersConfig(
-            default_user=users_data['default_user'],
-            sudo_group=users_data['sudo_group']
+            default_user=users_data["default_user"], sudo_group=users_data["sudo_group"]
         )
-        
+
         # Parse DNS
-        dns_data = data['dns']
-        dns = DNSConfig(servers=dns_data['servers'])
-        
+        dns_data = data["dns"]
+        dns = DNSConfig(servers=dns_data["servers"])
+
         # Parse Docker
-        docker_data = data['docker']
+        docker_data = data["docker"]
         docker = DockerConfig(
-            version=docker_data['version'],
-            repository=docker_data['repository'],
-            release=docker_data['release'],
-            ubuntu_release=docker_data['ubuntu_release']
+            version=docker_data["version"],
+            repository=docker_data["repository"],
+            release=docker_data["release"],
+            ubuntu_release=docker_data["ubuntu_release"],
         )
-        
+
         # Parse template_config
-        template_config_data = data.get('template_config', {})
+        template_config_data = data.get("template_config", {})
         template_config = TemplatePatternsConfig(
-            base=template_config_data.get('base', []),
-            patterns=template_config_data.get('patterns', {}),
-            preserve=template_config_data.get('preserve', [])
+            base=template_config_data.get("base", []),
+            patterns=template_config_data.get("patterns", {}),
+            preserve=template_config_data.get("preserve", []),
         )
-        
+
         # Parse SSH
-        ssh_data = data['ssh']
+        ssh_data = data["ssh"]
         ssh = SSHConfig(
-            connect_timeout=ssh_data['connect_timeout'],
-            batch_mode=ssh_data['batch_mode']
+            connect_timeout=ssh_data["connect_timeout"],
+            batch_mode=ssh_data["batch_mode"],
         )
-        
+
         # Parse waits
-        waits_data = data['waits']
+        waits_data = data["waits"]
         waits = WaitsConfig(
-            container_startup=waits_data['container_startup'],
-            container_ready_max_attempts=waits_data['container_ready_max_attempts'],
-            container_ready_sleep=waits_data['container_ready_sleep'],
-            network_config=waits_data['network_config'],
-            service_start=waits_data['service_start'],
-            swarm_init=waits_data['swarm_init'],
-            portainer_start=waits_data['portainer_start'],
-            glusterfs_setup=waits_data['glusterfs_setup']
+            container_startup=waits_data["container_startup"],
+            container_ready_max_attempts=waits_data["container_ready_max_attempts"],
+            container_ready_sleep=waits_data["container_ready_sleep"],
+            network_config=waits_data["network_config"],
+            service_start=waits_data["service_start"],
+            swarm_init=waits_data["swarm_init"],
+            portainer_start=waits_data["portainer_start"],
+            glusterfs_setup=waits_data["glusterfs_setup"],
         )
-        
+
         # Parse timeouts
-        timeouts_data = data['timeouts']
+        timeouts_data = data["timeouts"]
         timeouts = TimeoutsConfig(
-            apt_cache=timeouts_data['apt_cache'],
-            ubuntu_template=timeouts_data['ubuntu_template'],
-            docker_template=timeouts_data['docker_template'],
-            swarm_deploy=timeouts_data['swarm_deploy']
+            apt_cache=timeouts_data["apt_cache"],
+            ubuntu_template=timeouts_data["ubuntu_template"],
+            docker_template=timeouts_data["docker_template"],
+            swarm_deploy=timeouts_data["swarm_deploy"],
         )
-        
+
         # Parse GlusterFS (optional)
         glusterfs = None
-        if 'glusterfs' in data:
-            glusterfs_data = data['glusterfs']
+        if "glusterfs" in data:
+            glusterfs_data = data["glusterfs"]
             glusterfs = GlusterFSConfig(
-                volume_name=glusterfs_data.get('volume_name', 'swarm-storage'),
-                brick_path=glusterfs_data.get('brick_path', '/gluster/brick'),
-                mount_point=glusterfs_data.get('mount_point', '/mnt/gluster'),
-                replica_count=glusterfs_data.get('replica_count', 2)
+                volume_name=glusterfs_data.get("volume_name", "swarm-storage"),
+                brick_path=glusterfs_data.get("brick_path", "/gluster/brick"),
+                mount_point=glusterfs_data.get("mount_point", "/mnt/gluster"),
+                replica_count=glusterfs_data.get("replica_count", 2),
             )
-        
+
         return cls(
-            network=data['network'],
+            network=data["network"],
             proxmox=proxmox,
             containers=containers,
             templates=templates,
@@ -328,77 +362,82 @@ class LabConfig:
             waits=waits,
             timeouts=timeouts,
             glusterfs=glusterfs,
-            apt_cache_ct=data.get('apt-cache-ct', 'apt-cache')
+            apt_cache_ct=data.get("apt-cache-ct", "apt-cache"),
         )
-    
+
     def compute_derived_fields(self):
         """Compute derived fields like network_base, gateway, and IP addresses"""
         # Compute network_base
-        network = self.network.split('/')[0]
-        parts = network.split('.')
-        self.network_base = '.'.join(parts[:-1])
-        
+        network = self.network.split("/")[0]
+        parts = network.split(".")
+        self.network_base = ".".join(parts[:-1])
+
         # Compute gateway
         self.gateway = f"{self.network_base}.{self.proxmox.gateway_octet}"
-        
+
         # Compute IP addresses for containers
         for container in self.containers:
             container.ip_address = f"{self.network_base}.{container.ip}"
-        
+
         # Compute IP addresses for templates
         for template in self.templates:
             template.ip_address = f"{self.network_base}.{template.ip}"
-        
+
         # Build swarm managers and workers lists
         self.swarm_managers = [
-            ct for ct in self.containers
-            if ct.id in self.swarm.managers
+            ct for ct in self.containers if ct.id in self.swarm.managers
         ]
         self.swarm_workers = [
-            ct for ct in self.containers
-            if ct.id in self.swarm.workers
+            ct for ct in self.containers if ct.id in self.swarm.workers
         ]
-    
+
     # Convenience properties for backward compatibility
     @property
     def proxmox_host(self) -> str:
+        """Return proxmox host."""
         return self.proxmox.host
-    
+
     @property
     def proxmox_storage(self) -> str:
+        """Return proxmox storage."""
         return self.proxmox.storage
-    
+
     @property
     def proxmox_bridge(self) -> str:
+        """Return proxmox bridge."""
         return self.proxmox.bridge
-    
+
     @property
     def proxmox_template_dir(self) -> str:
+        """Return proxmox template directory."""
         return self.proxmox.template_dir
-    
+
     @property
     def swarm_port(self) -> int:
+        """Return Docker Swarm port."""
         return self.services.docker_swarm.port
-    
+
     @property
     def portainer_port(self) -> int:
+        """Return Portainer port."""
         return self.services.portainer.port
-    
+
     @property
     def portainer_image(self) -> str:
+        """Return Portainer image."""
         return self.services.portainer.image
-    
+
     @property
     def apt_cache_port(self) -> int:
+        """Return apt-cache port."""
         return self.services.apt_cache.port
-    
+
     @property
     def container_resources(self) -> Dict[str, Any]:
-        """Backward compatibility: return empty dict"""
-        return {}
-    
-    @property
-    def template_resources(self) -> Dict[str, Any]:
-        """Backward compatibility: return empty dict"""
+        """Backward compatibility: return empty dict."""
         return {}
 
+    @property
+    def template_resources(self) -> Dict[str, Any]:
+        """Backward compatibility: return empty dict."""
+        return {}
