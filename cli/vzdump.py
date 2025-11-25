@@ -1,40 +1,41 @@
 """
-Vzdump command wrapper for template creation
+Vzdump command wrapper with fluent API
 """
-
 import logging
 from typing import Optional
 from .base import CommandWrapper
-
 logger = logging.getLogger(__name__)
 
-
 class Vzdump(CommandWrapper):
-    """Wrapper for vzdump commands - generates command strings"""
+    """Wrapper for vzdump commands with fluent API"""
+    def __init__(self):
+        """Initialize with default settings"""
+        self._compress: str = "zstd"
+        self._mode: str = "stop"
 
-    @staticmethod
-    def create_template_cmd(
-        container_id: str, dumpdir: str, compress: str = "zstd", mode: str = "stop"
-    ) -> str:
+    def compress(self, value: str) -> "Vzdump":
+        """Set compression format (returns self for chaining)."""
+        self._compress = value
+        return self
+
+    def mode(self, value: str) -> "Vzdump":
+        """Set dump mode (returns self for chaining)."""
+        self._mode = value
+        return self
+
+    def create_template(self, container_id: str, dumpdir: str) -> str:
         """Generate command to create template from container using vzdump"""
-        return (
-            f"vzdump {container_id} --dumpdir {dumpdir} "
-            f"--compress {compress} --mode {mode} 2>&1"
-        )
+        return f"vzdump {container_id} --dumpdir {dumpdir} " f"--compress {self._compress} --mode {self._mode} 2>&1"
 
-    @staticmethod
-    def find_archive_cmd(dumpdir: str, container_id: str) -> str:
+    def find_archive(self, dumpdir: str, container_id: str) -> str:
         """Generate command to find the most recent archive file for a container"""
-        return (
-            f"ls -t {dumpdir}/vzdump-lxc-{container_id}-*.tar.zst 2>/dev/null | head -1"
-        )
+        return f"ls -t {dumpdir}/vzdump-lxc-{container_id}-*.tar.zst 2>/dev/null | head -1"
 
-    @staticmethod
-    def get_archive_size_cmd(archive_path: str) -> str:
+    def get_archive_size(self, archive_path: str) -> str:
         """Generate command to get archive file size in bytes"""
         return f"stat -c%s '{archive_path}' 2>/dev/null || echo '0'"
-
     @staticmethod
+
     def parse_archive_size(output: Optional[str]) -> Optional[int]:
         """Parse output to get archive file size"""
         if not output:

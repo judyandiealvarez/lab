@@ -1,19 +1,15 @@
 """
 Base command wrapper with error parsing and command generation
 """
-
 import re
 import logging
 from enum import Enum
 from dataclasses import dataclass
 from typing import Optional
-
 logger = logging.getLogger(__name__)
-
 
 class ErrorType(Enum):
     """Error types that can be detected in command output"""
-
     NONE = "none"
     TIMEOUT = "timeout"
     CONNECTION_ERROR = "connection_error"
@@ -27,12 +23,10 @@ class ErrorType(Enum):
     PACKAGE_ERROR = "package_error"
     NETWORK_ERROR = "network_error"
     UNKNOWN = "unknown"
-
-
 @dataclass
+
 class CommandResult:
     """Structured result from command execution"""
-
     success: bool
     output: Optional[str]
     error_type: ErrorType
@@ -42,25 +36,22 @@ class CommandResult:
     def __bool__(self):
         """Allow truthiness check: True when command succeeded."""
         return self.success
-
     @property
+
     def failed(self) -> bool:
         """Convenience property: True when command failed."""
         return not self.success
-
     @property
+
     def has_error(self) -> bool:
         """Whether command parsing detected an error."""
         return self.error_type != ErrorType.NONE
 
-
 class CommandWrapper:  # pylint: disable=too-few-public-methods
     """Base wrapper for CLI commands - generates command strings and parses results"""
-
     def __init__(self) -> None:
         """Prevent direct instantiation; subclasses should be static collections."""
         raise RuntimeError("CommandWrapper should not be instantiated")
-
     # Error patterns: (pattern, error_type, description)
     ERROR_PATTERNS = [
         # Timeout errors
@@ -73,33 +64,21 @@ class CommandWrapper:  # pylint: disable=too-few-public-methods
             ErrorType.CONNECTION_ERROR,
             "Connection error",
         ),
-        (
-            r"ssh.*connection.*refused|ssh.*connection.*closed",
-            ErrorType.CONNECTION_ERROR,
-            "SSH connection error",
-        ),
+        (r"ssh.*connection.*refused|ssh.*connection.*closed", ErrorType.CONNECTION_ERROR, "SSH connection error"),
         # Permission errors
         (
             r"permission denied|access denied|operation not permitted|eacces",
             ErrorType.PERMISSION_DENIED,
             "Permission denied",
         ),
-        (
-            r"cannot open.*permission denied",
-            ErrorType.PERMISSION_DENIED,
-            "File permission denied",
-        ),
+        (r"cannot open.*permission denied", ErrorType.PERMISSION_DENIED, "File permission denied"),
         # Not found errors
         (
             r"not found|no such file|no such directory|command not found|file not found",
             ErrorType.NOT_FOUND,
             "Resource not found",
         ),
-        (
-            r"container.*not found|container.*does not exist",
-            ErrorType.NOT_FOUND,
-            "Container not found",
-        ),
+        (r"container.*not found|container.*does not exist", ErrorType.NOT_FOUND, "Container not found"),
         # Already exists
         (
             r"already exists|already in use|already running|already part",
@@ -124,68 +103,32 @@ class CommandWrapper:  # pylint: disable=too-few-public-methods
             ErrorType.SERVICE_ERROR,
             "Service error",
         ),
-        (
-            r"failed to start|failed to stop|failed to restart",
-            ErrorType.SERVICE_ERROR,
-            "Service operation failed",
-        ),
+        (r"failed to start|failed to stop|failed to restart", ErrorType.SERVICE_ERROR, "Service operation failed"),
         # Package errors
-        (
-            r"package.*not found|unable to locate package|package.*unavailable",
-            ErrorType.PACKAGE_ERROR,
-            "Package error",
-        ),
-        (
-            r"e:\s*unable to|e:\s*package|e:\s*error",
-            ErrorType.PACKAGE_ERROR,
-            "APT package error",
-        ),
-        (
-            r"failed to fetch|unable to fetch|404 not found.*package",
-            ErrorType.PACKAGE_ERROR,
-            "Package fetch error",
-        ),
+        (r"package.*not found|unable to locate package|package.*unavailable", ErrorType.PACKAGE_ERROR, "Package error"),
+        (r"e:\s*unable to|e:\s*package|e:\s*error", ErrorType.PACKAGE_ERROR, "APT package error"),
+        (r"failed to fetch|unable to fetch|404 not found.*package", ErrorType.PACKAGE_ERROR, "Package fetch error"),
         # Network errors
-        (
-            r"network.*error|network.*unreachable|no route to host",
-            ErrorType.NETWORK_ERROR,
-            "Network error",
-        ),
-        (
-            r"failed to fetch.*http|unable to connect.*http",
-            ErrorType.NETWORK_ERROR,
-            "HTTP connection error",
-        ),
+        (r"network.*error|network.*unreachable|no route to host", ErrorType.NETWORK_ERROR, "Network error"),
+        (r"failed to fetch.*http|unable to connect.*http", ErrorType.NETWORK_ERROR, "HTTP connection error"),
         # Generic command failures (but not package names containing "error")
-        (
-            r"(?<![-a-z0-9])(error|failed|failure|fatal)(?![-a-z0-9])",
-            ErrorType.COMMAND_FAILED,
-            "Command failed",
-        ),
+        (r"(?<![-a-z0-9])(error|failed|failure|fatal)(?![-a-z0-9])", ErrorType.COMMAND_FAILED, "Command failed"),
     ]
-
     @classmethod
-    def parse_result(
-        cls, output: Optional[str], exit_code: Optional[int] = None
-    ) -> CommandResult:
+
+    def parse_result(cls, output: Optional[str], exit_code: Optional[int] = None) -> CommandResult:
         """
         Parse command output and return structured result
-
         Args:
             output: Command output (stdout/stderr combined)
             exit_code: Exit code if available
-
         Returns:
             CommandResult object
         """
-        sanitized_output = (
-            cls._sanitize_output_for_error_detection(output) if output else output
-        )
+        sanitized_output = cls._sanitize_output_for_error_detection(output) if output else output
         error_type, error_msg = cls._parse_error(output, exit_code)
-
         # Determine success: no error type or already exists (sometimes OK)
         success = error_type in (ErrorType.NONE, ErrorType.ALREADY_EXISTS)
-
         # But check for explicit failures in output
         if sanitized_output:
             failure_indicator = re.search(
@@ -198,7 +141,6 @@ class CommandWrapper:  # pylint: disable=too-few-public-methods
                     error_type = ErrorType.COMMAND_FAILED
                     error_msg = "Command output contains error indicators"
                     success = False
-
         return CommandResult(
             success=success,
             output=output,
@@ -206,25 +148,21 @@ class CommandWrapper:  # pylint: disable=too-few-public-methods
             error_message=error_msg,
             exit_code=exit_code if exit_code is not None else (0 if success else 1),
         )
-
     @staticmethod
+
     def contains_token(output: Optional[str], token: str) -> bool:
         """Helper to check whether output contains a keyword."""
         if not output:
             return False
         return token.lower() in output.lower()
-
     @classmethod
-    def _parse_error(
-        cls, output: Optional[str], exit_code: Optional[int] = None
-    ) -> tuple[ErrorType, Optional[str]]:
+
+    def _parse_error(cls, output: Optional[str], exit_code: Optional[int] = None) -> tuple[ErrorType, Optional[str]]:
         """
         Parse command output to identify error type and message
-
         Args:
             output: Command output (stdout/stderr combined)
             exit_code: Exit code if available
-
         Returns:
             Tuple of (ErrorType, error_message)
         """
@@ -232,7 +170,6 @@ class CommandWrapper:  # pylint: disable=too-few-public-methods
         # exit_code indicates failure. Empty string output means success.
         result_type = ErrorType.NONE
         message = None
-
         if output is None:
             # Only treat as error if exit_code indicates failure or is unknown (timeout)
             if exit_code is None:
@@ -246,14 +183,11 @@ class CommandWrapper:  # pylint: disable=too-few-public-methods
                 result_type = ErrorType.UNKNOWN
                 message = "Command produced no output"
             return result_type, message
-
         # Empty string is valid - command succeeded with no output
         if output == "":
             return ErrorType.NONE, None
-
         analysis_output = CommandWrapper._sanitize_output_for_error_detection(output)
         output_lower = analysis_output.lower()
-
         # Check exit code first
         if exit_code is not None and exit_code != 0:
             # Try to identify specific error from output
@@ -261,20 +195,15 @@ class CommandWrapper:  # pylint: disable=too-few-public-methods
                 if re.search(pattern, output_lower, re.IGNORECASE):
                     error_msg = cls._extract_error_message(output, pattern)
                     return error_type, error_msg or description
-            return (
-                ErrorType.COMMAND_FAILED,
-                f"Command failed with exit code {exit_code}",
-            )
-
+            return (ErrorType.COMMAND_FAILED, f"Command failed with exit code {exit_code}")
         # Even with exit code 0, check for error indicators in output
         for pattern, error_type, description in cls.ERROR_PATTERNS:
             if re.search(pattern, output_lower, re.IGNORECASE):
                 error_msg = cls._extract_error_message(output, pattern)
                 return error_type, error_msg or description
-
         return ErrorType.NONE, None
-
     @staticmethod
+
     def _sanitize_output_for_error_detection(output: Optional[str]) -> Optional[str]:
         """Remove known benign lines that frequently trigger false positives."""
         if not output:
@@ -306,15 +235,12 @@ class CommandWrapper:  # pylint: disable=too-few-public-methods
             if stripped and not any(c in stripped for c in ":()[]{}"):
                 words = stripped.split()
                 # If line contains known package names and looks like a package list
-                if any(
-                    word in ("libgpg-error-l10n", "ssl-cert", "rsyslog")
-                    for word in words
-                ) and len(words) <= 5:
+                if any(word in ("libgpg-error-l10n", "ssl-cert", "rsyslog") for word in words) and len(words) <= 5:
                     continue
             sanitized_lines.append(line_no_ansi)
         return "\n".join(sanitized_lines)
-
     @staticmethod
+
     def _extract_error_message(output: str, pattern: str) -> Optional[str]:
         """Extract relevant error message from sanitized output"""
         # Sanitize output first to avoid false positives
@@ -327,7 +253,6 @@ class CommandWrapper:  # pylint: disable=too-few-public-methods
                 if len(msg) > 200:
                     msg = msg[:197] + "..."
                 return msg
-
         # If no specific line found, return last part of sanitized output
         if len(sanitized) > 200:
             return sanitized[-197:] + "..."

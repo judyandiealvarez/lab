@@ -11,21 +11,36 @@ templates:
     ip: 10  # Last octet only
     hostname: "ubuntu-tmpl"
     type: ubuntu
+    template: base
     resources:
       memory: 2048
       swap: 2048
       cores: 4
       rootfs_size: 20
+    actions:
+      - apt cache proxy configuration
+      - AppArmor parser stub
+      - apt sources fix
+      - system upgrade
+      - openssh-server installation
+      - SSH service enablement
+      - base tools installation
+      - template cleanup
+      - template archive creation
   - name: docker-tmpl
     id: 3008
     ip: 8  # Last octet only
     hostname: "docker-tmpl"
     type: ubuntu+docker
+    template: ubuntu-tmpl
     resources:
       memory: 4096
       swap: 4096
       cores: 8
       rootfs_size: 40
+    actions:
+      - Docker installation
+      - Docker service start
 
 
 ct:
@@ -40,6 +55,14 @@ ct:
       swap: 2048
       cores: 4
       rootfs_size: 20
+    actions:
+      - cloud-init wait
+      - AppArmor parser stub
+      - disable automatic apt units
+      - systemd sysctl override
+      - apt-cacher-ng installation
+      - apt-cacher-ng port configuration
+      - apt-cacher-ng service enablement
   - name: pgsql
     id: 3018
     ip: 18  # Last octet only
@@ -55,6 +78,12 @@ ct:
       version: "17"
       port: 5432
       data_dir: "/var/lib/postgresql/data"
+    actions:
+      - cloud-init wait
+      - postgresql installation
+      - postgresql service configuration
+      - postgresql files configuration
+      - postgresql password setup
   - name: haproxy
     id: 3017
     ip: 17  # Last octet only
@@ -70,6 +99,12 @@ ct:
       http_port: 80
       https_port: 443
       stats_port: 8404
+    actions:
+      - cloud-init wait
+      - haproxy installation
+      - haproxy configuration
+      - haproxy systemd override
+      - haproxy service enablement
   - name: dns
     id: 3019
     ip: 19  # Last octet only
@@ -89,6 +124,13 @@ ct:
       postgres_db: "dns_server"
       postgres_user: "postgres"
       postgres_password: "postgres"
+    actions:
+      - cloud-init wait
+      - dotnet installation
+      - disable systemd resolved
+      - sins dns installation
+      - sins dns service configuration
+      - sins dns service enablement
   - name: swarm-manager
     id: 3005
     ip: 5  # Last octet only
@@ -102,6 +144,11 @@ ct:
       rootfs_size: 40
     params:
       port: 2377
+    actions:
+      - cloud-init wait
+      - lxc sysctl access configuration
+      - docker service start
+      - docker sysctl configuration
   - name: swarm-node-1
     id: 3006
     ip: 6  # Last octet only
@@ -115,6 +162,9 @@ ct:
       rootfs_size: 40
     params:
       port: 2377
+    actions:
+      - cloud-init wait
+      - docker service start
   - name: swarm-node-2
     id: 3007
     ip: 7  # Last octet only
@@ -128,6 +178,9 @@ ct:
       rootfs_size: 40
     params:
       port: 2377
+    actions:
+      - cloud-init wait
+      - docker service start
 
 swarm:
   managers:
@@ -153,8 +206,9 @@ proxmox:
 
 # User configuration
 users:
-  default_user: "jaal"
-  sudo_group: "sudo"
+  - name: "jaal"
+    password: "jaal123"
+    sudo_group: "sudo"
 
 # Network services
 services:
@@ -165,6 +219,7 @@ services:
   portainer:
     port: 9443
     image: "portainer/portainer-ce:latest"
+    password: "admin123"  # Optional: Set default admin password (will be bcrypt hashed)
   postgresql:
     port: 5432
   haproxy:
@@ -189,8 +244,9 @@ docker:
 # Base templates and patterns
 template_config:
   base:
-    - "ubuntu-24.04-standard_24.04-1_amd64.tar.zst"
-    - "ubuntu-24.10-standard_24.10-1_amd64.tar.zst"
+    - "ubuntu-25.04-standard_25.04-1.1_amd64.tar.zst"
+#    - "ubuntu-24.04-standard_24.04-1_amd64.tar.zst"
+#    - "ubuntu-24.10-standard_24.10-1_amd64.tar.zst"
   patterns:
     ubuntu: "ubuntu-25.04-template_{date}_amd64.tar.zst"
     "ubuntu+docker": "docker-ubuntu25.04-template_{date}_amd64.tar.zst"

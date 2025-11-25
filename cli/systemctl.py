@@ -1,70 +1,95 @@
 """
-Systemctl command wrapper
+Systemctl command wrapper with fluent API
 """
-
 import logging
 from typing import Optional
 from .base import CommandWrapper
-
 logger = logging.getLogger(__name__)
 
-
 class SystemCtl(CommandWrapper):
-    """Wrapper for systemctl commands - generates command strings"""
+    """Wrapper for systemctl commands with fluent API"""
+    def __init__(self):
+        """Initialize with default settings"""
+        self._service: Optional[str] = None
+        self._no_pager: bool = True
 
-    @staticmethod
-    def enable_cmd(service: str) -> str:
+    def service(self, name: str) -> "SystemCtl":
+        """Set service name (returns self for chaining)."""
+        self._service = name
+        return self
+
+    def no_pager(self, value: bool = True) -> "SystemCtl":
+        """Use --no-pager flag (returns self for chaining)."""
+        self._no_pager = value
+        return self
+
+    def enable(self) -> str:
         """Generate command to enable a service"""
-        return f"systemctl enable {service} 2>&1"
+        if not self._service:
+            raise ValueError("Service name must be set")
+        return f"systemctl enable {self._service} 2>&1"
+    def disable(self) -> str:
+        """Generate command to disable a service"""
+        if not self._service:
+            raise ValueError("Service name must be set")
+        return f"systemctl disable {self._service} 2>&1"
 
-    @staticmethod
-    def start_cmd(service: str) -> str:
+    def start(self) -> str:
         """Generate command to start a service"""
-        return f"systemctl start {service} 2>&1"
+        if not self._service:
+            raise ValueError("Service name must be set")
+        return f"systemctl start {self._service} 2>&1"
 
-    @staticmethod
-    def stop_cmd(service: str) -> str:
+    def stop(self) -> str:
         """Generate command to stop a service"""
-        return f"systemctl stop {service} 2>&1"
+        if not self._service:
+            raise ValueError("Service name must be set")
+        return f"systemctl stop {self._service} 2>&1"
 
-    @staticmethod
-    def restart_cmd(service: str) -> str:
+    def restart(self) -> str:
         """Generate command to restart a service"""
-        return f"systemctl restart {service} 2>&1"
+        if not self._service:
+            raise ValueError("Service name must be set")
+        return f"systemctl restart {self._service} 2>&1"
 
-    @staticmethod
-    def enable_and_start_cmd(service: str) -> str:
+    def enable_and_start(self) -> str:
         """Generate command to enable and start a service"""
-        return f"systemctl enable {service} && systemctl start {service} 2>&1"
+        if not self._service:
+            raise ValueError("Service name must be set")
+        return f"systemctl enable {self._service} && systemctl start {self._service} 2>&1"
 
-    @staticmethod
-    def is_active_check_cmd(service: str) -> str:
+    def is_active(self) -> str:
         """Generate command to check if service is active"""
-        return f"systemctl is-active {service} 2>/dev/null || echo inactive"
+        if not self._service:
+            raise ValueError("Service name must be set")
+        return f"systemctl is-active {self._service} 2>/dev/null || echo inactive"
 
-    @staticmethod
-    def is_enabled_check_cmd(service: str) -> str:
+    def is_enabled(self) -> str:
         """Generate command to check if service is enabled"""
-        return f"systemctl is-enabled {service} 2>/dev/null || echo disabled"
+        if not self._service:
+            raise ValueError("Service name must be set")
+        return f"systemctl is-enabled {self._service} 2>/dev/null || echo disabled"
 
-    @staticmethod
-    def daemon_reload_cmd() -> str:
+    def daemon_reload(self) -> str:
         """Generate command to reload systemd daemon"""
         return "systemctl daemon-reload 2>&1"
 
-    @staticmethod
-    def status_cmd(service: str) -> str:
+    def status(self) -> str:
         """Generate command to get service status"""
-        return f"systemctl status {service} --no-pager 2>&1"
+        if not self._service:
+            raise ValueError("Service name must be set")
+        pager_flag = " --no-pager" if self._no_pager else ""
+        return f"systemctl status {self._service}{pager_flag} 2>&1"
 
     @staticmethod
+
     def parse_is_active(output: Optional[str]) -> bool:
         """Parse output to check if service is active"""
         if not output:
             return False
         return "active" in output.lower() and "inactive" not in output.lower()
-
     @staticmethod
+
     def parse_is_enabled(output: Optional[str]) -> bool:
         """Parse output to check if service is enabled"""
         if not output:
