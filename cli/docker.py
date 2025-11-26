@@ -87,6 +87,11 @@ class Docker(CommandWrapper):
         """Generate command to create Docker volume"""
         return f"{self._docker_cmd} volume create {volume_name} 2>/dev/null || true"
 
+    def volume_rm(self, volume_name: str) -> str:
+        """Generate command to remove Docker volume"""
+        force_flag = "-f " if self._force else ""
+        return f"{self._docker_cmd} volume rm {force_flag}{volume_name} 2>/dev/null || true"
+
     def run(self, image: str, name: str, **kwargs) -> str:
         """Generate command to run Docker container"""
         import shlex

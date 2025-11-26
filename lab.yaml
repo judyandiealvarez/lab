@@ -221,7 +221,6 @@ services:
   portainer:
     port: 9443
     image: "portainer/portainer-ce:latest"
-    password: "admin123"  # Optional: Set default admin password (will be bcrypt hashed)
   postgresql:
     port: 5432
   haproxy:

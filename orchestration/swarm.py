@@ -564,34 +564,13 @@ def _install_portainer(context: SwarmDeployContext, docker_cmd: str) -> bool:  #
         node_ls_cmd = Docker().docker_cmd(docker_cmd).node_ls()
         pct_service.execute(str(manager_id), node_ls_cmd)
         logger.info("\nInstalling Portainer CE...")
-        volume_create_cmd = Docker().docker_cmd(docker_cmd).volume_create("portainer_data")
-        pct_service.execute(str(manager_id), volume_create_cmd)
         stop_cmd = Docker().docker_cmd(docker_cmd).stop("portainer")
         rm_cmd = Docker().docker_cmd(docker_cmd).rm("portainer")
         pct_service.execute(str(manager_id), f"{stop_cmd}; {rm_cmd}")
         portainer_image = cfg.portainer_image
-        # Generate bcrypt hash for admin password if configured
-        command_args = []
-        if cfg.services.portainer.password:
-            logger.info("Generating bcrypt hash for Portainer admin password...")
-            # Use Python bcrypt as primary method (more reliable than docker container)
-            python_hash_cmd = f"python3 -c \"import bcrypt; print(bcrypt.hashpw('{cfg.services.portainer.password}'.encode(), bcrypt.gensalt()).decode())\" 2>&1"
-            python_hash, _ = pct_service.execute(str(manager_id), python_hash_cmd)
-            if python_hash and python_hash.strip() and python_hash.strip().startswith("$2"):
-                password_hash = python_hash.strip()
-                logger.info("Password hash generated using Python bcrypt")
-                command_args = ["--admin-password", password_hash]
-            else:
-                logger.warning("Python bcrypt failed, trying httpd container method...")
-                # Fallback: use httpd container with apparmor unconfined to generate bcrypt hash
-                hash_cmd = f"{docker_cmd} run --rm --security-opt apparmor=unconfined httpd:2.4-alpine htpasswd -nbB admin '{cfg.services.portainer.password}' 2>&1 | grep '^admin:' | cut -d ':' -f 2- | tr -d '\\n'"
-                password_hash, _ = pct_service.execute(str(manager_id), hash_cmd)
-                if password_hash and password_hash.strip() and password_hash.strip().startswith("$2"):
-                    password_hash = password_hash.strip()
-                    logger.info("Password hash generated using httpd container")
-                    command_args = ["--admin-password", password_hash]
-                else:
-                    logger.warning("Failed to generate password hash, Portainer will require manual setup")
+        logger.info("Creating portainer_data volume...")
+        volume_create_cmd = Docker().docker_cmd(docker_cmd).volume_create("portainer_data")
+        pct_service.execute(str(manager_id), volume_create_cmd)
         logger.info("Creating Portainer container...")
         portainer_cmd = (
             Docker()
@@ -606,7 +585,6 @@ def _install_portainer(context: SwarmDeployContext, docker_cmd: str) -> bool:  #
                     "portainer_data:/data",
                 ],
                 security_opts=["apparmor=unconfined"],
-                command_args=command_args,
             )
         )
         pct_service.execute(str(manager_id), portainer_cmd)
@@ -638,107 +616,6 @@ def _install_portainer(context: SwarmDeployContext, docker_cmd: str) -> bool:  #
             if logs:
                 logger.warning(logs)
             return False
-        # Configure minimum password length via API
-        if cfg.services.portainer.password:
-            logger.info("Configuring Portainer minimum password length to 8...")
-            _configure_portainer_password_length(proxmox_host, manager_id, cfg)
         return True
-    finally:
-        lxc_service.disconnect()
-
-def _configure_portainer_password_length(proxmox_host: str, container_id: int, cfg) -> None:
-    """Configure Portainer minimum password length via API."""
-    from libs import common
-    import json
-    import time
-    manager_ip = None
-    for container in cfg.containers:
-        if container.id == container_id:
-            manager_ip = container.ip_address
-            break
-    if not manager_ip:
-        logger.warning("Could not find manager IP for Portainer configuration")
-        return
-    portainer_url = f"https://{manager_ip}:{cfg.services.portainer.port}"
-    # Wait for Portainer API to be ready
-    max_wait = 30
-    wait_time = 0
-    lxc_service = LXCService(proxmox_host, cfg.ssh)
-    if not lxc_service.connect():
-        return
-    try:
-        pct_service = PCTService(lxc_service)
-        while wait_time < max_wait:
-            check_cmd = f"curl -k -s -o /dev/null -w '%{{http_code}}' {portainer_url}/api/status || echo '000'"
-            status_code, _ = pct_service.execute(str(container_id), check_cmd)
-            if status_code and status_code.strip() in ["200", "401", "403"]:
-                break
-            time.sleep(2)
-            wait_time += 2
-    finally:
-        lxc_service.disconnect()
-    if wait_time >= max_wait:
-        logger.warning("Portainer API not ready, skipping password length configuration")
-        return
-    # Use heredoc to execute Python script directly
-    python_script = f'''import json
-import urllib.request
-import urllib.error
-import ssl
-import sys
-
-portainer_url = "{portainer_url}"
-password = "{cfg.services.portainer.password}"
-
-ssl_context = ssl.create_default_context()
-ssl_context.check_hostname = False
-ssl_context.verify_mode = ssl.CERT_NONE
-
-try:
-    auth_data = {{"Username": "admin", "Password": password}}
-    auth_json = json.dumps(auth_data).encode()
-    req = urllib.request.Request(f"{{portainer_url}}/api/auth", data=auth_json, headers={{"Content-Type": "application/json"}})
-    with urllib.request.urlopen(req, context=ssl_context) as response:
-        auth_result = json.loads(response.read())
-        jwt_token = auth_result.get("jwt", "")
-        if not jwt_token:
-            print("ERROR: No JWT token", file=sys.stderr)
-            sys.exit(1)
-        settings_req = urllib.request.Request(f"{{portainer_url}}/api/settings", headers={{"Authorization": f"Bearer {{jwt_token}}"}})
-        with urllib.request.urlopen(settings_req, context=ssl_context) as settings_response:
-            settings = json.loads(settings_response.read())
-        if "InternalAuthSettings" not in settings:
-            settings["InternalAuthSettings"] = {{}}
-        settings["InternalAuthSettings"]["RequiredPasswordLength"] = 8
-        settings_json = json.dumps(settings).encode()
-        update_req = urllib.request.Request(
-            f"{{portainer_url}}/api/settings",
-            data=settings_json,
-            headers={{"Authorization": f"Bearer {{jwt_token}}", "Content-Type": "application/json"}},
-            method="PUT"
-        )
-        with urllib.request.urlopen(update_req, context=ssl_context) as update_response:
-            json.loads(update_response.read())
-            print("SUCCESS: Minimum password length set to 8")
-except urllib.error.HTTPError as e:
-    error_body = e.read().decode() if e.fp else "No error body"
-    print(f"ERROR: HTTP {{e.code}}: {{error_body}}", file=sys.stderr)
-    sys.exit(1)
-except Exception as e:
-    print(f"ERROR: {{str(e)}}", file=sys.stderr)
-    sys.exit(1)
-'''
-    # Execute script using heredoc
-    lxc_service = LXCService(proxmox_host, cfg.ssh)
-    if not lxc_service.connect():
-        return
-    try:
-        pct_service = PCTService(lxc_service)
-        run_cmd = f"python3 << 'PORTAINER_SCRIPT_EOF'\n{python_script}\nPORTAINER_SCRIPT_EOF"
-        result, _ = pct_service.execute(str(container_id), run_cmd)
-        if result and "SUCCESS" in result:
-            logger.info("Portainer minimum password length set to 8")
-        else:
-            logger.warning("Failed to configure Portainer password length: %s", result[:200] if result else "No output")
     finally:
         lxc_service.disconnect()
