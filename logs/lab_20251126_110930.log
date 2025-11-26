@@ -1,0 +1,387 @@
+2025-11-26 11:09:30 - commands.deploy           - INFO - ==================================================
+2025-11-26 11:09:30 - commands.deploy           - INFO - Deploying Lab Environment
+2025-11-26 11:09:30 - commands.deploy           - INFO - ==================================================
+2025-11-26 11:09:30 - commands.deploy           - INFO - 
+[1/51] Creating apt-cache container first...
+2025-11-26 11:09:30 - libs.container_manager    - INFO - ==================================================
+2025-11-26 11:09:30 - libs.container_manager    - INFO - [Overall: 1%] [Container 'apt-cache': 0%] [Step: 1] Starting container creation
+2025-11-26 11:09:30 - libs.container_manager    - INFO - ==================================================
+2025-11-26 11:09:31 - paramiko.transport        - INFO - Connected (version 2.0, client OpenSSH_9.2p1)
+2025-11-26 11:09:31 - paramiko.transport        - INFO - Authentication (publickey) successful!
+2025-11-26 11:09:31 - services.ssh              - INFO - SSH connection established to root@10.11.3.4
+2025-11-26 11:09:31 - services.ssh              - INFO - Running: pct destroy 3020 --force
+2025-11-26 11:09:32 - services.ssh              - INFO - Configuration file 'nodes/pve/lxc/3020.conf' does not exist
+2025-11-26 11:09:32 - services.ssh              - INFO - Running: test -f /var/lib/vz/template/cache/ubuntu-25.04-standard_25.04-1.1_amd64.tar.zst && echo exists || echo missing
+2025-11-26 11:09:32 - services.ssh              - INFO - missing
+2025-11-26 11:09:32 - services.template         - INFO - Base template not found. Downloading ubuntu-25.04-standard_25.04-1.1_amd64.tar.zst...
+2025-11-26 11:09:32 - services.template         - INFO - Running: pveam download local ubuntu-25.04-standard_25.04-1.1_amd64.tar.zst
+2025-11-26 11:09:32 - services.ssh              - INFO - Running: pveam download local ubuntu-25.04-standard_25.04-1.1_amd64.tar.zst
+2025-11-26 11:09:38 - services.ssh              - INFO - downloading http://download.proxmox.com/images/system/ubuntu-25.04-standard_25.04-1.1_amd64.tar.zst to /var/lib/vz/template/cache/ubuntu-25.04-standard_25.04-1.1_amd64.tar.zst
+--2025-11-26 10:09:33--  http://download.proxmox.com/images/system/ubuntu-25.04-standard_25.04-1.1_amd64.tar.zst
+Resolving download.proxmox.com (download.proxmox.com)... 45.84.67.184, 2a0b:7140:5:100::167
+Connecting to download.proxmox.com (download.proxmox.com)|45.84.67.184|:80... connected.
+HTTP request sent, awaiting response... 200 OK
+Length: 149046471 (142M) [application/octet-stream]
+Saving to: '/var/lib/vz/template/cache/ubuntu-25.04-standard_25.04-1.1_amd64.tar.zst.tmp_dwnl.303716'
+     0K ........ ........ ........ ........ 22% 29.4M 4s
+ 32768K ........ ........ ........ ........ 45% 35.1M 2s
+ 65536K ........ ........ ........ ........ 67% 37.0M 1s
+ 98304K ........ ........ ........ ........ 90% 38.2M 0s
+131072K ........ ......                    100% 38.7M=4.1s
+2025-11-26 10:09:38 (34.9 MB/s) - '/var/lib/vz/template/cache/ubuntu-25.04-standard_25.04-1.1_amd64.tar.zst.tmp_dwnl.303716' saved [149046471/149046471]
+calculating checksum...OK, checksum verified
+download of 'http://download.proxmox.com/images/system/ubuntu-25.04-standard_25.04-1.1_amd64.tar.zst' to '/var/lib/vz/template/cache/ubuntu-25.04-standard_25.04-1.1_amd64.tar.zst' finished
+2025-11-26 11:09:38 - services.ssh              - INFO - Running: test -f /var/lib/vz/template/cache/ubuntu-25.04-standard_25.04-1.1_amd64.tar.zst && echo exists || echo missing
+2025-11-26 11:09:38 - services.ssh              - INFO - exists
+2025-11-26 11:09:38 - services.template         - INFO - Template ubuntu-25.04-standard_25.04-1.1_amd64.tar.zst downloaded successfully
+2025-11-26 11:09:38 - services.ssh              - INFO - Running: test -f /var/lib/vz/template/cache/ubuntu-25.04-standard_25.04-1.1_amd64.tar.zst && test -r /var/lib/vz/template/cache/ubuntu-25.04-standard_25.04-1.1_amd64.tar.zst && echo 'valid' || echo 'invalid'
+2025-11-26 11:09:38 - services.ssh              - INFO - valid
+2025-11-26 11:09:38 - libs.container_manager    - INFO - Checking if container 3020 already exists...
+2025-11-26 11:09:38 - services.ssh              - INFO - Running: pct list | grep '^3020 ' || echo 'not_found'
+2025-11-26 11:09:40 - services.ssh              - INFO - not_found
+2025-11-26 11:09:40 - libs.common               - INFO - Container 3020 does not exist, skipping
+2025-11-26 11:09:40 - libs.container_manager    - INFO - Creating container 3020 from template...
+2025-11-26 11:09:40 - services.ssh              - INFO - Running: pct create 3020 /var/lib/vz/template/cache/ubuntu-25.04-standard_25.04-1.1_amd64.tar.zst --hostname apt-cache --memory 2048 --swap 2048 --cores 4 --net0 name=eth0,bridge=vmbr0,firewall=0,gw=10.11.3.253,ip=10.11.3.20/24,ip6=dhcp,type=veth --rootfs sdb:20 --unprivileged 1 --ostype ubuntu --arch amd64
+2025-11-26 11:09:46 - services.ssh              - INFO - Formatting '/mnt/pve/sdb/images/3020/vm-3020-disk-0.raw', fmt=raw size=21474836480 preallocation=off
+Creating filesystem with 5242880 4k blocks and 1310720 inodes
+Filesystem UUID: 414affd3-959e-445c-a8e6-81e5e94e08b3
+Superblock backups stored on blocks: 
+	32768, 98304, 163840, 229376, 294912, 819200, 884736, 1605632, 2654208, 
+extracting archive '/var/lib/vz/template/cache/ubuntu-25.04-standard_25.04-1.1_amd64.tar.zst'
+Total bytes read: 590848000 (564MiB, 229MiB/s)
+Creating SSH host key 'ssh_host_rsa_key' - this may take some time ...
+done: SHA256:ENYk79j3XUJ8XaZHy9UX80Xz9dXMy7T4U3/Ix4INByM root@apt-cache
+Creating SSH host key 'ssh_host_ed25519_key' - this may take some time ...
+done: SHA256:PbMmA8tPpvKf1PW8qF8zRDYl5TPXt7NezL1rDmqrXnA root@apt-cache
+Creating SSH host key 'ssh_host_dsa_key' - this may take some time ...
+done: SHA256:BdEVxEh77DQqbvz9+X96tngB9VjG92upXDKQOvpLFY4 root@apt-cache
+Creating SSH host key 'ssh_host_ecdsa_key' - this may take some time ...
+done: SHA256:6CcAJR0Tn41VHdM4wYXVurkr27dQaYyq28TzhM8dyTA root@apt-cache
+2025-11-26 11:09:46 - libs.container_manager    - INFO - Setting container features...
+2025-11-26 11:09:46 - services.ssh              - INFO - Running: pct set 3020 --features nesting=1,keyctl=1,fuse=1
+2025-11-26 11:09:48 - libs.container_manager    - INFO - Starting container 3020...
+2025-11-26 11:09:48 - services.ssh              - INFO - Running: pct start 3020
+2025-11-26 11:09:52 - libs.container_manager    - INFO - Bringing up network interface...
+2025-11-26 11:09:52 - services.pct              - INFO - Running in container 3020: ping -c 1 8.8.8.8
+2025-11-26 11:09:52 - services.ssh              - INFO - Running: pct exec 3020 -- bash -c "echo cGluZyAtYyAxIDguOC44Ljg= | base64 -d | bash"
+2025-11-26 11:09:53 - services.ssh              - INFO - PING 8.8.8.8 (8.8.8.8) 56(84) bytes of data.
+64 bytes from 8.8.8.8: icmp_seq=1 ttl=116 time=17.5 ms
+
+--- 8.8.8.8 ping statistics ---
+1 packets transmitted, 1 received, 0% packet loss, time 0ms
+rtt min/avg/max/mdev = 17.473/17.473/17.473/0.000 ms
+2025-11-26 11:09:53 - libs.container_manager    - INFO - Network interface is up and reachable
+2025-11-26 11:09:53 - services.pct              - INFO - Running in container 3020: id -u jaal >/dev/null 2>&1 || useradd -m -s /bin/bash -G sudo jaal
+2025-11-26 11:09:53 - services.ssh              - INFO - Running: pct exec 3020 -- bash -c "echo aWQgLXUgamFhbCA+L2Rldi9udWxsIDI+JjEgfHwgdXNlcmFkZCAtbSAtcyAvYmluL2Jhc2ggLUcgc3VkbyBqYWFs | base64 -d | bash"
+2025-11-26 11:09:54 - services.pct              - INFO - Running in container 3020: echo jaal:jaal123 | chpasswd
+2025-11-26 11:09:54 - services.ssh              - INFO - Running: pct exec 3020 -- bash -c "echo ZWNobyBqYWFsOmphYWwxMjMgfCBjaHBhc3N3ZA== | base64 -d | bash"
+2025-11-26 11:09:55 - libs.container_manager    - INFO - Password set for user jaal
+2025-11-26 11:09:55 - services.pct              - INFO - Running in container 3020: printf 'jaal ALL=(ALL) NOPASSWD: ALL
+' > /etc/sudoers.d/jaal 2>&1
+2025-11-26 11:09:55 - services.ssh              - INFO - Running: pct exec 3020 -- bash -c "echo cHJpbnRmICdqYWFsIEFMTD0oQUxMKSBOT1BBU1NXRDogQUxMCicgPiAvZXRjL3N1ZG9lcnMuZC9qYWFsIDI+JjE= | base64 -d | bash"
+2025-11-26 11:09:57 - services.pct              - INFO - Running in container 3020: chmod 440 /etc/sudoers.d/jaal 2>&1
+2025-11-26 11:09:57 - services.ssh              - INFO - Running: pct exec 3020 -- bash -c "echo Y2htb2QgNDQwIC9ldGMvc3Vkb2Vycy5kL2phYWwgMj4mMQ== | base64 -d | bash"
+2025-11-26 11:09:58 - services.pct              - INFO - Running in container 3020: id -u jaal >/dev/null 2>&1 && echo 'exists' || echo 'missing'
+2025-11-26 11:09:58 - services.ssh              - INFO - Running: pct exec 3020 -- bash -c "echo aWQgLXUgamFhbCA+L2Rldi9udWxsIDI+JjEgJiYgZWNobyAnZXhpc3RzJyB8fCBlY2hvICdtaXNzaW5nJw== | base64 -d | bash"
+2025-11-26 11:09:59 - services.ssh              - INFO - exists
+2025-11-26 11:09:59 - services.pct              - INFO - Running in container 3020: mkdir -p /home/jaal/.ssh && echo c3NoLXJzYSBBQUFBQjNOemFDMXljMkVBQUFBREFRQUJBQUFCZ1FESGhzZy9SQlMxZW9mZEJ0T21SZ25rNnJRZVdMNWVEQ0FGUllhdG9tb25xelZQSG5VaEdBV0x3cEFpblRLWTBicmVHN1J3Y1B6U3k4ZkUzbHBBeGQ3ZDU1MVNrb3dRT3pMTzFhdVJUdkNHZ0dKTUNZaHNpT1REZGc0eUNHZGh1dlRsZ0cyT3g4Y0NFWTkzTnNoNGJqWDNtNmw5YnBxV2FtZGxYNVJINWJMeXB6NWxxL0NkM2VUcHJGWENncUpPY1JULzdBMlRxRGVIS3ZFM3pZTTZ0ZWdrZStkUWFkTjQxcmg5c1kzS0NHMHFmRjU4dG4yRkx6Sng3M0g5d1JHZUNXeFRockY1d1N6Z3JGRElZR1RKVE1VcUtnYkpWVllXWC9iWS9uUVdUOFZPNmZMemkrMHBBT3o5MzFxNGVuSHRPNTZUNDRiRXF0Zmc1ZFN4N2JMR0lyNTZIbWxuMUdIaG91VSt1NzZjVlRXT29qRFY1VDFXc1JBVHQ4YUQ5MDdDaTk3RlAvNDZjUjV5SlR4YVRwK3B4V3BtaDJ3YUdlRFJEV1FzdEVsSG9TanRQeW91eVV1V2IzMW9UQmxrOEt3Z09lcDN6MTdxK1lJaFpXUUdIdm1jUktIMlBBOThJUnBpSlZSemY4c1hKMGNka291QTVXQlNEZWdUb0I1VzdRUG1laEU9IHNoYWRvd2NoYW1iZXJAU2hhZG93Y2hhbWJlcnMtTWFjLW1pbmkubG9jYWw= | base64 -d > /home/jaal/.ssh/authorized_keys && chmod 600 /home/jaal/.ssh/authorized_keys && chown jaal:jaal /home/jaal/.ssh/authorized_keys && chown -R jaal:jaal /home/jaal/.ssh && chmod 700 /home/jaal/.ssh
+2025-11-26 11:09:59 - services.ssh              - INFO - Running: pct exec 3020 -- bash -c "echo bWtkaXIgLXAgL2hvbWUvamFhbC8uc3NoICYmIGVjaG8gYzNOb0xYSnpZU0JCUVVGQlFqTk9lbUZETVhsak1rVkJRVUZCUkVGUlFVSkJRVUZDWjFGRVNHaHpaeTlTUWxNeFpXOW1aRUowVDIxU1oyNXJObkpSWlZkTU5XVkVRMEZHVWxsaGRHOXRiMjV4ZWxaUVNHNVZhRWRCVjB4M2NFRnBibFJMV1RCaWNtVkhOMUozWTFCNlUzazRaa1V6YkhCQmVHUTNaRFUxTVZOcmIzZFJUM3BNVHpGaGRWSlVka05IWjBkS1RVTlphSE5wVDFSRVpHYzBlVU5IWkdoMWRsUnNaMGN5VDNnNFkwTkZXVGt6VG5Ob05HSnFXRE50Tm13NVluQnhWMkZ0Wkd4WU5WSklOV0pNZVhCNk5XeHhMME5rTTJWVWNISkdXRU5uY1VwUFkxSlVMemRCTWxSeFJHVklTM1pGTTNwWlRUWjBaV2RyWlN0a1VXRmtUalF4Y21nNWMxa3pTME5ITUhGbVJqVTRkRzR5Umt4NlNuZzNNMGc1ZDFKSFpVTlhlRlJvY2tZMWQxTjZaM0pHUkVsWlIxUktWRTFWY1V0bllrcFdWbGxYV0M5aVdTOXVVVmRVT0ZaUE5tWk1lbWtyTUhCQlQzbzVNekZ4TkdWdVNIUlBOVFpVTkRSaVJYRjBabWMxWkZONE4ySk1SMGx5TlRaSWJXeHVNVWRJYUc5MVZTdDFOelpqVmxSWFQyOXFSRlkxVkRGWGMxSkJWSFE0WVVRNU1EZERhVGszUmxBdk5EWmpValY1U2xSNFlWUndLM0I0VjNCdGFESjNZVWRsUkZKRVYxRnpkRVZzU0c5VGFuUlFlVzkxZVZWMVYySXpNVzlVUW14ck9FdDNaMDlsY0RONk1UZHhLMWxKYUZwWFVVZElkbTFqVWt0SU1sQkJPVGhKVW5CcFNsWlNlbVk0YzFoS01HTmthMjkxUVRWWFFsTkVaV2RVYjBJMVZ6ZFJVRzFsYUVVOUlITm9ZV1J2ZDJOb1lXMWlaWEpBVTJoaFpHOTNZMmhoYldKbGNuTXRUV0ZqTFcxcGJta3ViRzlqWVd3PSB8IGJhc2U2NCAtZCA+IC9ob21lL2phYWwvLnNzaC9hdXRob3JpemVkX2tleXMgJiYgY2htb2QgNjAwIC9ob21lL2phYWwvLnNzaC9hdXRob3JpemVkX2tleXMgJiYgY2hvd24gamFhbDpqYWFsIC9ob21lL2phYWwvLnNzaC9hdXRob3JpemVkX2tleXMgJiYgY2hvd24gLVIgamFhbDpqYWFsIC9ob21lL2phYWwvLnNzaCAmJiBjaG1vZCA3MDAgL2hvbWUvamFhbC8uc3No | base64 -d | bash"
+2025-11-26 11:10:00 - services.pct              - INFO - Running in container 3020: mkdir -p /root/.ssh && echo c3NoLXJzYSBBQUFBQjNOemFDMXljMkVBQUFBREFRQUJBQUFCZ1FESGhzZy9SQlMxZW9mZEJ0T21SZ25rNnJRZVdMNWVEQ0FGUllhdG9tb25xelZQSG5VaEdBV0x3cEFpblRLWTBicmVHN1J3Y1B6U3k4ZkUzbHBBeGQ3ZDU1MVNrb3dRT3pMTzFhdVJUdkNHZ0dKTUNZaHNpT1REZGc0eUNHZGh1dlRsZ0cyT3g4Y0NFWTkzTnNoNGJqWDNtNmw5YnBxV2FtZGxYNVJINWJMeXB6NWxxL0NkM2VUcHJGWENncUpPY1JULzdBMlRxRGVIS3ZFM3pZTTZ0ZWdrZStkUWFkTjQxcmg5c1kzS0NHMHFmRjU4dG4yRkx6Sng3M0g5d1JHZUNXeFRockY1d1N6Z3JGRElZR1RKVE1VcUtnYkpWVllXWC9iWS9uUVdUOFZPNmZMemkrMHBBT3o5MzFxNGVuSHRPNTZUNDRiRXF0Zmc1ZFN4N2JMR0lyNTZIbWxuMUdIaG91VSt1NzZjVlRXT29qRFY1VDFXc1JBVHQ4YUQ5MDdDaTk3RlAvNDZjUjV5SlR4YVRwK3B4V3BtaDJ3YUdlRFJEV1FzdEVsSG9TanRQeW91eVV1V2IzMW9UQmxrOEt3Z09lcDN6MTdxK1lJaFpXUUdIdm1jUktIMlBBOThJUnBpSlZSemY4c1hKMGNka291QTVXQlNEZWdUb0I1VzdRUG1laEU9IHNoYWRvd2NoYW1iZXJAU2hhZG93Y2hhbWJlcnMtTWFjLW1pbmkubG9jYWw= | base64 -d > /root/.ssh/authorized_keys && chmod 600 /root/.ssh/authorized_keys
+2025-11-26 11:10:00 - services.ssh              - INFO - Running: pct exec 3020 -- bash -c "echo bWtkaXIgLXAgL3Jvb3QvLnNzaCAmJiBlY2hvIGMzTm9MWEp6WVNCQlFVRkJRak5PZW1GRE1YbGpNa1ZCUVVGQlJFRlJRVUpCUVVGQ1oxRkVTR2h6Wnk5U1FsTXhaVzltWkVKMFQyMVNaMjVyTm5KUlpWZE1OV1ZFUTBGR1VsbGhkRzl0YjI1eGVsWlFTRzVWYUVkQlYweDNjRUZwYmxSTFdUQmljbVZITjFKM1kxQjZVM2s0WmtVemJIQkJlR1EzWkRVMU1WTnJiM2RSVDNwTVR6RmhkVkpVZGtOSFowZEtUVU5aYUhOcFQxUkVaR2MwZVVOSFpHaDFkbFJzWjBjeVQzZzRZME5GV1RrelRuTm9OR0pxV0ROdE5tdzVZbkJ4VjJGdFpHeFlOVkpJTldKTWVYQjZOV3h4TDBOa00yVlVjSEpHV0VObmNVcFBZMUpVTHpkQk1sUnhSR1ZJUzNaRk0zcFpUVFowWldkclpTdGtVV0ZrVGpReGNtZzVjMWt6UzBOSE1IRm1SalU0ZEc0eVJreDZTbmczTTBnNWQxSkhaVU5YZUZSb2NrWTFkMU42WjNKR1JFbFpSMVJLVkUxVmNVdG5Za3BXVmxsWFdDOWlXUzl1VVZkVU9GWlBObVpNZW1rck1IQkJUM281TXpGeE5HVnVTSFJQTlRaVU5EUmlSWEYwWm1jMVpGTjROMkpNUjBseU5UWkliV3h1TVVkSWFHOTFWU3QxTnpaalZsUlhUMjlxUkZZMVZERlhjMUpCVkhRNFlVUTVNRGREYVRrM1JsQXZORFpqVWpWNVNsUjRZVlJ3SzNCNFYzQnRhREozWVVkbFJGSkVWMUZ6ZEVWc1NHOVRhblJRZVc5MWVWVjFWMkl6TVc5VVFteHJPRXQzWjA5bGNETjZNVGR4SzFsSmFGcFhVVWRJZG0xalVrdElNbEJCT1RoSlVuQnBTbFpTZW1ZNGMxaEtNR05rYTI5MVFUVlhRbE5FWldkVWIwSTFWemRSVUcxbGFFVTlJSE5vWVdSdmQyTm9ZVzFpWlhKQVUyaGhaRzkzWTJoaGJXSmxjbk10VFdGakxXMXBibWt1Ykc5allXdz0gfCBiYXNlNjQgLWQgPiAvcm9vdC8uc3NoL2F1dGhvcml6ZWRfa2V5cyAmJiBjaG1vZCA2MDAgL3Jvb3QvLnNzaC9hdXRob3JpemVkX2tleXM= | base64 -d | bash"
+2025-11-26 11:10:01 - services.pct              - INFO - Running in container 3020: test -f /home/jaal/.ssh/authorized_keys && test -f /root/.ssh/authorized_keys && echo 'keys_exist' || echo 'keys_missing'
+2025-11-26 11:10:01 - services.ssh              - INFO - Running: pct exec 3020 -- bash -c "echo dGVzdCAtZiAvaG9tZS9qYWFsLy5zc2gvYXV0aG9yaXplZF9rZXlzICYmIHRlc3QgLWYgL3Jvb3QvLnNzaC9hdXRob3JpemVkX2tleXMgJiYgZWNobyAna2V5c19leGlzdCcgfHwgZWNobyAna2V5c19taXNzaW5nJw== | base64 -d | bash"
+2025-11-26 11:10:02 - services.ssh              - INFO - keys_exist
+2025-11-26 11:10:02 - services.pct              - INFO - SSH key setup verified successfully
+2025-11-26 11:10:02 - services.pct              - INFO - Running in container 3020: dpkg -l | grep -q '^ii.*openssh-server' || echo 'not_installed'
+2025-11-26 11:10:02 - services.ssh              - INFO - Running: pct exec 3020 -- bash -c "echo ZHBrZyAtbCB8IGdyZXAgLXEgJ15paS4qb3BlbnNzaC1zZXJ2ZXInIHx8IGVjaG8gJ25vdF9pbnN0YWxsZWQn | base64 -d | bash"
+2025-11-26 11:10:04 - services.pct              - INFO - Running in container 3020: systemctl enable ssh 2>&1
+2025-11-26 11:10:04 - services.ssh              - INFO - Running: pct exec 3020 -- bash -c "echo c3lzdGVtY3RsIGVuYWJsZSBzc2ggMj4mMQ== | base64 -d | bash"
+2025-11-26 11:10:05 - services.ssh              - INFO - Synchronizing state of ssh.service with SysV service script with /usr/lib/systemd/systemd-sysv-install.
+Executing: /usr/lib/systemd/systemd-sysv-install enable ssh
+perl: warning: Setting locale failed.
+perl: warning: Please check that your locale settings:
+	LANGUAGE = (unset),
+	LC_ALL = (unset),
+	LC_CTYPE = (unset),
+	LC_NUMERIC = (unset),
+	LC_COLLATE = (unset),
+	LC_TIME = (unset),
+	LC_MESSAGES = (unset),
+	LC_MONETARY = (unset),
+	LC_ADDRESS = (unset),
+	LC_IDENTIFICATION = (unset),
+	LC_MEASUREMENT = (unset),
+	LC_PAPER = (unset),
+	LC_TELEPHONE = (unset),
+	LC_NAME = (unset),
+	LANG = "en_US.UTF-8"
+    are supported and installed on your system.
+perl: warning: Falling back to the standard locale ("C").
+perl: warning: Setting locale failed.
+perl: warning: Please check that your locale settings:
+	LANGUAGE = (unset),
+	LC_ALL = (unset),
+	LC_CTYPE = (unset),
+	LC_NUMERIC = (unset),
+	LC_COLLATE = (unset),
+	LC_TIME = (unset),
+	LC_MESSAGES = (unset),
+	LC_MONETARY = (unset),
+	LC_ADDRESS = (unset),
+	LC_IDENTIFICATION = (unset),
+	LC_MEASUREMENT = (unset),
+	LC_PAPER = (unset),
+	LC_TELEPHONE = (unset),
+	LC_NAME = (unset),
+	LANG = "en_US.UTF-8"
+    are supported and installed on your system.
+perl: warning: Falling back to the standard locale ("C").
+2025-11-26 11:10:05 - services.pct              - INFO - Running in container 3020: systemctl start ssh 2>&1
+2025-11-26 11:10:05 - services.ssh              - INFO - Running: pct exec 3020 -- bash -c "echo c3lzdGVtY3RsIHN0YXJ0IHNzaCAyPiYx | base64 -d | bash"
+2025-11-26 11:10:09 - services.pct              - INFO - Running in container 3020: systemctl is-active ssh 2>/dev/null || echo inactive
+2025-11-26 11:10:09 - services.ssh              - INFO - Running: pct exec 3020 -- bash -c "echo c3lzdGVtY3RsIGlzLWFjdGl2ZSBzc2ggMj4vZGV2L251bGwgfHwgZWNobyBpbmFjdGl2ZQ== | base64 -d | bash"
+2025-11-26 11:10:11 - services.ssh              - INFO - active
+2025-11-26 11:10:11 - services.pct              - INFO - SSH service is running
+2025-11-26 11:10:11 - services.pct              - INFO - Running in container 3020: ss -tlnp | grep ':22 ' || netstat -tlnp 2>/dev/null | grep ':22 ' || echo 'not_listening'
+2025-11-26 11:10:11 - services.ssh              - INFO - Running: pct exec 3020 -- bash -c "echo c3MgLXRsbnAgfCBncmVwICc6MjIgJyB8fCBuZXRzdGF0IC10bG5wIDI+L2Rldi9udWxsIHwgZ3JlcCAnOjIyICcgfHwgZWNobyAnbm90X2xpc3RlbmluZyc= | base64 -d | bash"
+2025-11-26 11:10:12 - services.ssh              - INFO - LISTEN 0      4096         0.0.0.0:22        0.0.0.0:*    users:(("sshd",pid=425,fd=3),("systemd",pid=1,fd=112))
+LISTEN 0      4096            [::]:22           [::]:*    users:(("sshd",pid=425,fd=4),("systemd",pid=1,fd=113))
+2025-11-26 11:10:12 - services.pct              - INFO - SSH listening check: LISTEN 0      4096         0.0.0.0:22        0.0.0.0:*    users:(("sshd",pid=425,fd=3),("systemd",pid=1,fd=112))
+LISTEN 0      4096            [::]:22           [::]:*    users:(("sshd",pid=425,fd=4),("systemd",pid=1,fd=113))
+2025-11-26 11:10:12 - services.pct              - INFO - Running in container 3020: grep -E '^ListenAddress|^#ListenAddress' /etc/ssh/sshd_config 2>/dev/null | head -5 || echo 'config_check_failed'
+2025-11-26 11:10:12 - services.ssh              - INFO - Running: pct exec 3020 -- bash -c "echo Z3JlcCAtRSAnXkxpc3RlbkFkZHJlc3N8XiNMaXN0ZW5BZGRyZXNzJyAvZXRjL3NzaC9zc2hkX2NvbmZpZyAyPi9kZXYvbnVsbCB8IGhlYWQgLTUgfHwgZWNobyAnY29uZmlnX2NoZWNrX2ZhaWxlZCc= | base64 -d | bash"
+2025-11-26 11:10:13 - services.ssh              - INFO - #ListenAddress 0.0.0.0
+#ListenAddress ::
+2025-11-26 11:10:13 - services.pct              - INFO - SSH config check: #ListenAddress 0.0.0.0
+#ListenAddress ::
+2025-11-26 11:10:13 - services.pct              - INFO - Running in container 3020: timeout 1 bash -c '</dev/tcp/127.0.0.1/22' 2>&1 && echo 'localhost_ok' || echo 'localhost_failed'
+2025-11-26 11:10:13 - services.ssh              - INFO - Running: pct exec 3020 -- bash -c "echo dGltZW91dCAxIGJhc2ggLWMgJzwvZGV2L3RjcC8xMjcuMC4wLjEvMjInIDI+JjEgJiYgZWNobyAnbG9jYWxob3N0X29rJyB8fCBlY2hvICdsb2NhbGhvc3RfZmFpbGVkJw== | base64 -d | bash"
+2025-11-26 11:10:14 - services.ssh              - INFO - localhost_ok
+2025-11-26 11:10:14 - services.pct              - INFO - SSH localhost connection test: localhost_ok
+2025-11-26 11:10:14 - libs.container_manager    - INFO - Waiting for container to be ready with SSH connectivity (up to 10 minutes)...
+2025-11-26 11:10:14 - services.ssh              - INFO - Running: pct status 3020
+2025-11-26 11:10:15 - services.ssh              - INFO - status: running
+2025-11-26 11:10:15 - services.pct              - INFO - Running in container 3020: echo test
+2025-11-26 11:10:15 - services.ssh              - INFO - Running: pct exec 3020 -- bash -c "echo ZWNobyB0ZXN0 | base64 -d | bash"
+2025-11-26 11:10:16 - services.ssh              - INFO - test
+2025-11-26 11:10:17 - services.pct              - INFO - Testing SSH connection to jaal@10.11.3.20...
+2025-11-26 11:10:17 - paramiko.transport        - INFO - Connected (version 2.0, client OpenSSH_9.9p1)
+2025-11-26 11:10:17 - paramiko.transport        - INFO - Authentication (publickey) successful!
+2025-11-26 11:10:17 - services.ssh              - INFO - SSH connection established to jaal@10.11.3.20
+2025-11-26 11:10:17 - services.ssh              - INFO - Running: echo 'SSH connection test successful'
+2025-11-26 11:10:17 - services.ssh              - INFO - SSH connection test successful
+2025-11-26 11:10:17 - services.pct              - INFO - SSH connectivity verified - connection successful
+2025-11-26 11:10:17 - services.pct              - INFO - Container is ready and SSH is accessible!
+2025-11-26 11:10:20 - paramiko.transport        - INFO - Connected (version 2.0, client OpenSSH_9.9p1)
+2025-11-26 11:10:21 - paramiko.transport        - INFO - Authentication (publickey) successful!
+2025-11-26 11:10:21 - services.ssh              - INFO - SSH connection established to jaal@10.11.3.20
+2025-11-26 11:10:21 - libs.container_manager    - INFO - Executing 7 actions for container 'apt-cache'
+2025-11-26 11:10:21 - libs.container_manager    - INFO - ==================================================
+2025-11-26 11:10:21 - libs.container_manager    - INFO - [Overall: 3%] [Container 'apt-cache': 14%] [Step: 2] Starting action: cloud-init wait
+2025-11-26 11:10:21 - libs.container_manager    - INFO - ==================================================
+2025-11-26 11:10:21 - services.ssh              - INFO - Running: command -v cloud-init
+2025-11-26 11:10:21 - actions.cloud_init_wait   - INFO - cloud-init not found, skipping
+2025-11-26 11:10:21 - libs.container_manager    - INFO - [1/7] Action 'cloud-init wait' completed successfully
+2025-11-26 11:10:21 - libs.container_manager    - INFO - ==================================================
+2025-11-26 11:10:21 - libs.container_manager    - INFO - [Overall: 5%] [Container 'apt-cache': 28%] [Step: 3] Starting action: AppArmor parser stub
+2025-11-26 11:10:21 - libs.container_manager    - INFO - ==================================================
+2025-11-26 11:10:21 - services.ssh              - INFO - Running: sudo -n bash -c 'echo CkFQUEFSTU9SX0JJTj0vdXNyL3NiaW4vYXBwYXJtb3JfcGFyc2VyCmlmIGNvbW1hbmQgLXYgZHBrZy1kaXZlcnQgPi9kZXYvbnVsbCAyPiYxICYmIFsgLWYgIiRBUFBBUk1PUl9CSU4iIF07IHRoZW4KICBkcGtnLWRpdmVydCAtLXF1aWV0IC0tbG9jYWwgLS1yZW5hbWUgLS1hZGQgIiRBUFBBUk1PUl9CSU4iID4vZGV2L251bGwgMj4mMSB8fCB0cnVlCiAgaWYgWyAtZiAiJEFQUEFSTU9SX0JJTi5kaXN0cmliIiBdOyB0aGVuCiAgICBjYXQgPDwnQVBQQVJNT1JfU1RVQicgPiAiJEFQUEFSTU9SX0JJTiIKIyEvYmluL3NoCmlmIFsgIiQxIiA9ICItLXZlcnNpb24iIF0gfHwgWyAiJDEiID0gIi1WIiBdOyB0aGVuCiAgZXhlYyAvdXNyL3NiaW4vYXBwYXJtb3JfcGFyc2VyLmRpc3RyaWIgIiRAIgpmaQpleGl0IDAKQVBQQVJNT1JfU1RVQgogICAgY2htb2QgK3ggIiRBUFBBUk1PUl9CSU4iIDI+L2Rldi9udWxsIHx8IHRydWUKICBmaQpmaQplY2hvIGFwcGFybW9yX3N0dWJfZG9uZQo= | base64 -d | bash'
+2025-11-26 11:10:21 - services.ssh              - INFO - apparmor_stub_done
+2025-11-26 11:10:21 - libs.container_manager    - INFO - [2/7] Action 'AppArmor parser stub' completed successfully
+2025-11-26 11:10:21 - libs.container_manager    - INFO - ==================================================
+2025-11-26 11:10:21 - libs.container_manager    - INFO - [Overall: 7%] [Container 'apt-cache': 42%] [Step: 4] Starting action: disable automatic apt units
+2025-11-26 11:10:21 - libs.container_manager    - INFO - ==================================================
+2025-11-26 11:10:21 - services.ssh              - INFO - Running: sudo -n bash -c 'for unit in apt-daily.service apt-daily.timer apt-daily-upgrade.service apt-daily-upgrade.timer; do systemctl stop "$unit" 2>/dev/null || true; systemctl disable "$unit" 2>/dev/null || true; systemctl mask "$unit" 2>/dev/null || true; done'
+2025-11-26 11:10:22 - libs.container_manager    - INFO - [3/7] Action 'disable automatic apt units' completed successfully
+2025-11-26 11:10:22 - libs.container_manager    - INFO - ==================================================
+2025-11-26 11:10:22 - libs.container_manager    - INFO - [Overall: 9%] [Container 'apt-cache': 57%] [Step: 5] Starting action: systemd sysctl override
+2025-11-26 11:10:22 - libs.container_manager    - INFO - ==================================================
+2025-11-26 11:10:22 - services.pct              - INFO - Running in container 3020: mkdir -p /etc/systemd/system/systemd-sysctl.service.d 2>&1
+2025-11-26 11:10:22 - services.ssh              - INFO - Running: pct exec 3020 -- bash -c "echo bWtkaXIgLXAgL2V0Yy9zeXN0ZW1kL3N5c3RlbS9zeXN0ZW1kLXN5c2N0bC5zZXJ2aWNlLmQgMj4mMQ== | base64 -d | bash"
+2025-11-26 11:10:23 - services.pct              - INFO - Running in container 3020: printf '[Service]
+ImportCredential=
+' > /etc/systemd/system/systemd-sysctl.service.d/override.conf 2>&1
+2025-11-26 11:10:23 - services.ssh              - INFO - Running: pct exec 3020 -- bash -c "echo cHJpbnRmICdbU2VydmljZV0KSW1wb3J0Q3JlZGVudGlhbD0KJyA+IC9ldGMvc3lzdGVtZC9zeXN0ZW0vc3lzdGVtZC1zeXNjdGwuc2VydmljZS5kL292ZXJyaWRlLmNvbmYgMj4mMQ== | base64 -d | bash"
+2025-11-26 11:10:25 - services.pct              - INFO - Running in container 3020: systemctl daemon-reload && systemctl stop systemd-sysctl.service 2>/dev/null || true && systemctl start systemd-sysctl.service 2>/dev/null || true
+2025-11-26 11:10:25 - services.ssh              - INFO - Running: pct exec 3020 -- bash -c "echo c3lzdGVtY3RsIGRhZW1vbi1yZWxvYWQgJiYgc3lzdGVtY3RsIHN0b3Agc3lzdGVtZC1zeXNjdGwuc2VydmljZSAyPi9kZXYvbnVsbCB8fCB0cnVlICYmIHN5c3RlbWN0bCBzdGFydCBzeXN0ZW1kLXN5c2N0bC5zZXJ2aWNlIDI+L2Rldi9udWxsIHx8IHRydWU= | base64 -d | bash"
+2025-11-26 11:10:26 - libs.container_manager    - INFO - [4/7] Action 'systemd sysctl override' completed successfully
+2025-11-26 11:10:26 - libs.container_manager    - INFO - ==================================================
+2025-11-26 11:10:26 - libs.container_manager    - INFO - [Overall: 11%] [Container 'apt-cache': 71%] [Step: 6] Starting action: apt-cacher-ng installation
+2025-11-26 11:10:26 - libs.container_manager    - INFO - ==================================================
+2025-11-26 11:10:26 - actions.install_apt_cacher - INFO - Installing apt-cacher-ng package...
+2025-11-26 11:10:26 - services.ssh              - INFO - Running: sudo -n bash -c 'echo ZWNobyAnYXB0LWNhY2hlci1uZyBhcHQtY2FjaGVyLW5nL3R1bm5lbGVuYWJsZSBib29sZWFuIGZhbHNlCmFwdC1jYWNoZXItbmcgYXB0LWNhY2hlci1uZy9iaW5kYWRkcmVzcyBzdHJpbmcgMC4wLjAuMAonIHwgZGViY29uZi1zZXQtc2VsZWN0aW9ucw== | base64 -d | bash'
+2025-11-26 11:10:26 - services.ssh              - INFO - Running: sudo -n test -f /var/lib/dpkg/lock-frontend && echo exists || echo not_found 2>/dev/null
+2025-11-26 11:10:26 - services.ssh              - INFO - exists
+2025-11-26 11:10:26 - services.ssh              - INFO - Running: sudo -n lsof -t /var/lib/dpkg/lock-frontend 2>/dev/null | head -1
+2025-11-26 11:10:26 - services.ssh              - INFO - Running: sudo -n fuser /var/lib/dpkg/lock-frontend 2>/dev/null | grep -oE '[0-9]+' | head -1
+2025-11-26 11:10:27 - services.ssh              - INFO - Running: sudo -n test -f /var/lib/dpkg/lock && echo exists || echo not_found 2>/dev/null
+2025-11-26 11:10:27 - services.ssh              - INFO - exists
+2025-11-26 11:10:27 - services.ssh              - INFO - Running: sudo -n lsof -t /var/lib/dpkg/lock 2>/dev/null | head -1
+2025-11-26 11:10:27 - services.ssh              - INFO - Running: sudo -n fuser /var/lib/dpkg/lock 2>/dev/null | grep -oE '[0-9]+' | head -1
+2025-11-26 11:10:27 - services.ssh              - INFO - Running: sudo -n test -f /var/lib/apt/lists/lock && echo exists || echo not_found 2>/dev/null
+2025-11-26 11:10:27 - services.ssh              - INFO - exists
+2025-11-26 11:10:27 - services.ssh              - INFO - Running: sudo -n lsof -t /var/lib/apt/lists/lock 2>/dev/null | head -1
+2025-11-26 11:10:27 - services.ssh              - INFO - Running: sudo -n fuser /var/lib/apt/lists/lock 2>/dev/null | grep -oE '[0-9]+' | head -1
+2025-11-26 11:10:27 - services.ssh              - INFO - Running: sudo -n test -f /var/lib/dpkg/lock-frontend && echo exists || echo not_found 2>/dev/null
+2025-11-26 11:10:27 - services.ssh              - INFO - exists
+2025-11-26 11:10:27 - services.ssh              - INFO - Running: sudo -n lsof -t /var/lib/dpkg/lock-frontend 2>/dev/null | head -1
+2025-11-26 11:10:27 - services.ssh              - INFO - Running: sudo -n fuser /var/lib/dpkg/lock-frontend 2>/dev/null | grep -oE '[0-9]+' | head -1
+2025-11-26 11:10:28 - services.ssh              - INFO - Running: sudo -n test -f /var/lib/dpkg/lock && echo exists || echo not_found 2>/dev/null
+2025-11-26 11:10:28 - services.ssh              - INFO - exists
+2025-11-26 11:10:28 - services.ssh              - INFO - Running: sudo -n lsof -t /var/lib/dpkg/lock 2>/dev/null | head -1
+2025-11-26 11:10:28 - services.ssh              - INFO - Running: sudo -n fuser /var/lib/dpkg/lock 2>/dev/null | grep -oE '[0-9]+' | head -1
+2025-11-26 11:10:28 - services.ssh              - INFO - Running: sudo -n test -f /var/lib/apt/lists/lock && echo exists || echo not_found 2>/dev/null
+2025-11-26 11:10:28 - services.ssh              - INFO - exists
+2025-11-26 11:10:28 - services.ssh              - INFO - Running: sudo -n lsof -t /var/lib/apt/lists/lock 2>/dev/null | head -1
+2025-11-26 11:10:28 - services.ssh              - INFO - Running: sudo -n fuser /var/lib/apt/lists/lock 2>/dev/null | grep -oE '[0-9]+' | head -1
+2025-11-26 11:10:28 - services.ssh              - INFO - Running: sudo -n apt-get update < /dev/null
+2025-11-26 11:10:29 - services.ssh              - INFO - 0% [Working]            Get:1 http://archive.ubuntu.com/ubuntu plucky InRelease [265 kB]
+0% [1 InRelease 14.0 kB/265 kB 5%]                                  0% [Working]            Get:2 http://archive.ubuntu.com/ubuntu plucky-updates InRelease [126 kB]
+0% [2 InRelease 15.4 kB/126 kB 12%]                                   0% [Working]0% [Waiting for headers]0% [Waiting for headers]                        Get:3 http://archive.ubuntu.com/ubuntu plucky-security InRelease [126 kB]
+0% [3 InRelease 6832 B/126 kB 5%]                                 0% [Working]14% [Waiting for headers]                         Get:4 http://archive.ubuntu.com/ubuntu plucky/main Translation-en [519 kB]
+14% [4 Translation-en 6901 B/519 kB 1%]                                       18% [Waiting for headers]                         Get:5 http://archive.ubuntu.com/ubuntu plucky/main amd64 c-n-f Metadata [31.6 kB]
+                         Get:6 http://archive.ubuntu.com/ubuntu plucky/multiverse Translation-en [119 kB]
+                         Get:7 http://archive.ubuntu.com/ubuntu plucky/multiverse amd64 c-n-f Metadata [7312 B]
+                         Get:8 http://archive.ubuntu.com/ubuntu plucky/restricted Translation-en [13.1 kB]
+                         Get:9 http://archive.ubuntu.com/ubuntu plucky/restricted amd64 c-n-f Metadata [380 B]
+                         Get:10 http://archive.ubuntu.com/ubuntu plucky/universe Translation-en [6281 kB]
+20% [10 Translation-en 87.5 kB/6281 kB 1%]20% [4 Translation-en store 0 B] [10 Translation-en 87.5 kB/6281 kB 1%]                                                                       36% [10 Translation-en 2022 kB/6281 kB 32%]36% [5 Commands-amd64 store 0 B] [10 Translation-en 2030 kB/6281 kB 32%]                                                                        38% [10 Translation-en 2234 kB/6281 kB 36%]39% [6 Translation-en store 0 B] [10 Translation-en 2251 kB/6281 kB 36%]                                                                        45% [10 Translation-en 2984 kB/6281 kB 48%]45% [7 Commands-amd64 store 0 B] [10 Translation-en 2998 kB/6281 kB 48%]                                                                        46% [10 Translation-en 3073 kB/6281 kB 49%]46% [8 Translation-en store 0 B] [10 Translation-en 3088 kB/6281 kB 49%]                                                                        48% [10 Translation-en 3263 kB/6281 kB 52%]48% [9 Commands-amd64 store 0 B] [10 Translation-en 3263 kB/6281 kB 52%]                                                                        48% [10 Translation-en 3296 kB/6281 kB 52%]                                           73% [Waiting for headers]                         Get:11 http://archive.ubuntu.com/ubuntu plucky/universe amd64 c-n-f Metadata [104 B]
+73% [Connecting to archive.ubuntu.com (185.125.190.36)]73% [10 Translation-en store 0 B] [Connecting to archive.ubuntu.com (185.125.19                                                                               Get:12 http://archive.ubuntu.com/ubuntu plucky-updates/main amd64 Packages [427 kB]
+                                                                               73% [10 Translation-en store 0 B] [12 Packages 8329 B/427 kB 2%]                                                                76% [10 Translation-en store 0 B]                                 Get:13 http://archive.ubuntu.com/ubuntu plucky-updates/main Translation-en [108 kB]
+76% [10 Translation-en store 0 B] [13 Translation-en 15.5 kB/108 kB 14%]                                                                        77% [10 Translation-en store 0 B]                                 Get:14 http://archive.ubuntu.com/ubuntu plucky-updates/main amd64 c-n-f Metadata [9436 B]
+                                 Get:15 http://archive.ubuntu.com/ubuntu plucky-updates/multiverse amd64 Packages [24.8 kB]
+77% [10 Translation-en store 0 B] [15 Packages 1336 B/24.8 kB 5%]                                                                 Ge
+2025-11-26 11:10:30 - services.ssh              - INFO - t:16 http://archive.ubuntu.com/ubuntu plucky-updates/multiverse Translation-en [3764 B]
+                                                                 Get:17 http://archive.ubuntu.com/ubuntu plucky-updates/multiverse amd64 c-n-f Metadata [392 B]
+                                                                 Get:18 http://archive.ubuntu.com/ubuntu plucky-updates/restricted amd64 Packages [322 kB]
+77% [10 Translation-en store 0 B] [18 Packages 23.9 kB/322 kB 7%]                                                                 80% [10 Translation-en store 0 B]                                 Get:19 http://archive.ubuntu.com/ubuntu plucky-updates/restricted Translation-en [76.7 kB]
+80% [10 Translation-en store 0 B] [19 Translation-en 26.7 kB/76.7 kB 35%]                                                                         Get:20 http://archive.ubuntu.com/ubuntu plucky-updates/restricted amd64 c-n-f Metadata [412 B]
+                                                                         Get:21 http://archive.ubuntu.com/ubuntu plucky-updates/universe amd64 Packages [258 kB]
+                                                                         81% [10 Translation-en store 0 B] [21 Packages 16.1 kB/258 kB 6%]                                                                 Get:22 http://archive.ubuntu.com/ubuntu plucky-updates/universe Translation-en [81.1 kB]
+83% [10 Translation-en store 0 B] [22 Translation-en 2226 B/81.1 kB 3%]83% [10 Translation-en store 0 B] [Connecting to archive.ubuntu.com (185.125.19                                                                               Get:23 http://archive.ubuntu.com/ubuntu plucky-updates/universe amd64 c-n-f Metadata [6800 B]
+                                                                               83% [10 Translation-en store 0 B] [Waiting for headers]                                                       Get:24 http://archive.ubuntu.com/ubuntu plucky-security/main amd64 Packages [302 kB]
+83% [10 Translation-en store 0 B] [24 Packages 0 B/302 kB 0%]                                                             85% [24 Packages 151 kB/302 kB 50%]85% [11 Commands-amd64 store 0 B] [24 Packages 151 kB/302 kB 50%]                                                                 85% [24 Packages 154 kB/302 kB 51%]85% [12 Packages store 0 B] [24 Packages 157 kB/302 kB 52%]                                                           Get:25 http://archive.ubuntu.com/ubuntu plucky-security/main Translation-en [73.5 kB]
+86% [12 Packages store 0 B] [25 Translation-en 8416 B/73.5 kB 11%]                                                                  87% [12 Packages store 2250 kB]                               87% [Working]             Get:26 http://archive.ubuntu.com/ubuntu plucky-security/main amd64 c-n-f Metadata [6248 B]
+             Get:27 http://archive.ubuntu.com/ubuntu plucky-security/multiverse amd64 Packages [24.4 kB]
+87% [13 Translation-en store 0 B] [27 Packages 5939 B/24.4 kB 24%]                                                                  88% [13 Translation-en store 0 B]                                 Get:28 http://archive.ubuntu.com/ubuntu plucky-security/multiverse Translation-en [3880 B]
+88% [13 Translation-en store 0 B] [28 Translation-en 0 B/3880 B 0%]                                                                   Get:29 http://archive.ubuntu.com/ubuntu plucky-security/multiverse amd64 c-n-f Metadata [436 B]
+                                                                   Get:30 http://archive.ubuntu.com/ubuntu plucky-security/restricted amd64 Packages [299 kB]
+                                                                   88% [13 Translation-en store 0 B] [30 Packages 7200 B/299 kB 2%]                                                                89% [30 Packages 99.4 kB/299 kB 33%]89% [14 Commands-amd64 store 0 B] [30 Packages 108 kB/299 kB 36%]                                                                 89% [30 Packages 125 kB/299 kB 42%]89% [15
+2025-11-26 11:10:30 - services.ssh              - INFO - Packages store 0 B] [30 Packages 125 kB/299 kB 42%]                                                           90% [30 Packages 174 kB/299 kB 58%]90% [16 Translation-en store 0 B] [30 Packages 174 kB/299 kB 58%]                                                                 90% [30 Packages 184 kB/299 kB 62%]90% [17 Commands-amd64 store 0 B] [30 Packages 184 kB/299 kB 62%]                                                                 91% [30 Packages 184 kB/299 kB 62%]91% [18 Packages store 0 B] [30 Packages 184 kB/299 kB 62%]                                                           Get:31 http://archive.ubuntu.com/ubuntu plucky-security/restricted Translation-en [72.7 kB]
+92% [18 Packages store 0 B] [31 Translation-en 4096 B/72.7 kB 6%]                                                                 92% [18 Packages store 0 B]                           Get:32 http://archive.ubuntu.com/ubuntu plucky-security/restricted amd64 c-n-f Metadata [432 B]
+                           Get:33 http://archive.ubuntu.com/ubuntu plucky-security/universe amd64 Packages [196 kB]
+92% [18 Packages store 0 B] [33 Packages 8272 B/196 kB 4%]94% [18 Packages store 0 B] [Connecting to archive.ubuntu.com (185.125.190.36)]                                                                               94% [Connecting to archive.ubuntu.com (185.125.190.36)]94% [19 Translation-en store 0 B] [Connecting to archive.ubuntu.com (185.125.19                                                                               94% [Connecting to archive.ubuntu.com (185.125.190.36)]94% [20 Commands-amd64 store 2260 B] [Connecting to archive.ubuntu.com (185.125                                                                               95% [Connecting to archive.ubuntu.com (185.125.190.36)]95% [21 Packages store 0 B] [Connecting to archive.ubuntu.com (185.125.190.36)]                                                                               95% [Waiting for headers]95% [22 Translation-en store 0 B] [Waiting for headers]                                                       Get:34 http://archive.ubuntu.com/ubuntu plucky-security/universe Translation-en [59.1 kB]
+95% [22 Translation-en store 0 B] [34 Translation-en 14.0 kB/59.1 kB 24%]                                                                         95% [34 Translation-en 14.0 kB/59.1 kB 24%]95% [23 Commands-amd64 store 0 B] [34 Translation-en 14.0 kB/59.1 kB 24%]                                                                         96% [34 Translation-en 14.0 kB/59.1 kB 24%]96% [24 Packages store 0 B] [34 Translation-en 14.0 kB/59.1 kB 24%]                                                                   96% [34 Translation-en 19.8 kB/59.1 kB 33%]96% [25 Translation-en store 0 B] [34 Translation-en 19.8 kB/59.1 kB 33%]                                                                         97% [34 Translation-en 31.2 kB/59.1 kB 53%]97% [26 Commands-amd64 store 0 B] [34 Translation-en 31.2 kB/59.1 kB 53%]                                                                         97% [34 Translation-en 31.2 kB/59.1 kB 53%]97% [27 Packages store 0 B] [34 Translation-en 31.2 kB/59.1 kB 53%]                                                                   97% [34 Translation-en 41.2 kB/59.1 kB 70%]97% [28 Translation-en store 0 B] [34 Translation-en 41.2 kB/59.1 kB 70%]                                                                         98% [34 Translation-en 41.2 kB/59.1 kB 70%]98% [29 Commands-amd64 store 0 B] [34 Translation-en 41.2 kB/59.1 kB 70%]                                                                         98% [34 Translation-en 41.2 kB/59.1 kB 70%]98% [30 Packages store 0 B] [34 Translation-en 41.2 kB/59.1 kB 70%]                                                                   98% [30 Packages store 0 B] [Waiting for headers]                                                 98% [Waiting for headers]98% [31 Translation-en store 0 B] [Waiting for headers]                                                       99% [W
+2025-11-26 11:10:32 - services.ssh              - INFO - aiting for headers]99% [32 Commands-amd64 store 0 B] [Waiting for headers]                                                       99% [Waiting for headers]99% [33 Packages store 0 B] [Waiting for headers]                                                 Get:35 http://archive.ubuntu.com/ubuntu plucky-security/universe amd64 c-n-f Metadata [5076 B]
+99% [33 Packages store 0 B] [35 Commands-amd64 2620 B/5076 B 52%]                                                                 99% [33 Packages store 0 B]                           99% [Working]99% [34 Translation-en store 0 B]                                 100% [Working]100% [35 Commands-amd64 store 0 B]                                  100% [Working]              Fetched 9849 kB in 2s (5990 kB/s)
+Reading package lists... 0%Reading package lists... 0%Reading package lists... 0%Reading package lists... 5%Reading package lists... 5%Reading package lists... 7%Reading package lists... 7%Reading package lists... 8%Reading package lists... 8%Reading package lists... 8%Reading package lists... 8%Reading package lists... 9%Reading package lists... 9%Reading package lists... 9%Reading package lists... 9%Reading package lists... 54%Reading package lists... 64%Reading package lists... 64%Reading package lists... 88%Reading package lists... 88%Reading package lists... 89%Reading package lists... 89%Reading package lists... 90%Reading package lists... 90%Reading package lists... 90%Reading package lists... 90%Reading package lists... 90%Reading package lists... 90%Reading package lists... 92%Reading package lists... 92%Reading package lists... 93%Reading package lists... 93%Reading package lists... 94%Reading package lists... 94%Reading package lists... 94%Reading package lists... 94%Reading package lists... 95%Reading package lists... 95%Reading package lists... 96%Reading package lists... 96%Reading package lists... 96%Reading package lists... 96%Reading package lists... 96%Reading package lists... 96%Reading package lists... 97%Reading package lists... 97%Reading package lists... 98%Reading package lists... 98%Reading package lists... 99%Reading package lists... 99%Reading package lists... 99%Reading package lists... 99%Reading package lists... Done
+2025-11-26 11:10:32 - services.apt              - INFO - apt update succeeded on attempt 1/20
+2025-11-26 11:10:32 - services.ssh              - INFO - Running: sudo -n test -f /var/lib/dpkg/lock-frontend && echo exists || echo not_found 2>/dev/null
+2025-11-26 11:10:32 - services.ssh              - INFO - exists
+2025-11-26 11:10:32 - services.ssh              - INFO - Running: sudo -n lsof -t /var/lib/dpkg/lock-frontend 2>/dev/null | head -1
+2025-11-26 11:10:32 - services.ssh              - INFO - Running: sudo -n fuser /var/lib/dpkg/lock-frontend 2>/dev/null | grep -oE '[0-9]+' | head -1
+2025-11-26 11:10:32 - services.ssh              - INFO - Running: sudo -n test -f /var/lib/dpkg/lock && echo exists || echo not_found 2>/dev/null
+2025-11-26 11:10:32 - services.ssh              - INFO - exists
+2025-11-26 11:10:32 - services.ssh              - INFO - Running: sudo -n lsof -t /var/lib/dpkg/lock 2>/dev/null | head -1
+2025-11-26 11:10:32 - services.ssh              - INFO - Running: sudo -n fuser /var/lib/dpkg/lock 2>/dev/null | grep -oE '[0-9]+' | head -1
+2025-11-26 11:10:32 - services.ssh              - INFO - Running: sudo -n test -f /var/lib/apt/lists/lock && echo exists || echo not_found 2>/dev/null
+2025-11-26 11:10:33 - services.ssh              - INFO - exists
+2025-11-26 11:10:33 - services.ssh              - INFO - Running: sudo -n lsof -t /var/lib/apt/lists/lock 2>/dev/null | head -1
+2025-11-26 11:10:33 - services.ssh              - INFO - Running: sudo -n fuser /var/lib/apt/lists/lock 2>/dev/null | grep -oE '[0-9]+' | head -1
+2025-11-26 11:10:33 - services.ssh              - INFO - Running: sudo -n DEBIAN_PRIORITY=critical DEBIAN_FRONTEND=noninteractive apt-get install -y -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold -o DPkg::Pre-Install-Pkgs='' apt-cacher-ng < /dev/null
+2025-11-26 11:10:35 - services.ssh              - INFO - Reading package lists... 0%Reading package lists... 100%Reading package lists... Done
+Building dependency tree... 0%Building dependency tree... 0%Building dependency tree... 50%Building dependency tree... 50%Building dependency tree... Done
+The following additional packages will be installed:
+  libcares2 libevent-2.1-7t64 libevent-core-2.1-7t64
+  libevent-pthreads-2.1-7t64 libfuse2t64
+Suggested packages:
+  doc-base avahi-daemon
+The following NEW packages will be installed:
+  apt-cacher-ng libcares2 libevent-2.1-7t64 libevent-core-2.1-7t64
+  libevent-pthreads-2.1-7t64 libfuse2t64
+0 upgraded, 6 newly installed, 0 to remove and 76 not upgraded.
+Need to get 1062 kB of archives.
+After this operation, 2987 kB of additional disk space will be used.
+0% [Working]            Get:1 http://archive.ubuntu.com/ubuntu plucky-updates/main amd64 libcares2 amd64 1.34.4-2.1ubuntu0.1 [110 kB]
+1% [1 libcares2 14.0 kB/110 kB 13%]                                   12% [Working]             Get:2 http://archive.ubuntu.com/ubuntu plucky/main amd64 libevent-2.1-7t64 amd64 2.1.12-stable-10 [144 kB]
+12% [2 libevent-2.1-7t64 5429 B/144 kB 4%]                                          26% [Waiting for headers]                         Get:3 http://archive.ubuntu.com/ubuntu plucky/main amd64 libevent-core-2.1-7t64 amd64 2.1.12-stable-10 [91.2 kB]
+26% [3 libevent-core-2.1-7t64 4931 B/91.2 kB 5%]                                                36% [Waiting for headers]                         Get:4 http://archive.ubuntu.com/ubuntu plucky/main amd64 libevent-pthreads-2.1-7t64 amd64 2.1.12-stable-10 [7966 B]
+37% [4 libevent-pthreads-2.1-7t64 7274 B/7966 B 91%]                                                    40% [Waiting for headers]                         Get:5 http://archive.ubuntu.com/ubuntu plucky/universe amd64 libfuse2t64 amd64 2.9.9-9 [90.5 kB]
+41% [5 libfuse2t64 7594 B/90.5 kB 8%]                                     50% [Waiting for headers]                         Get:6 http://archive.ubuntu.com/ubuntu plucky/universe amd64 apt-cacher-ng amd64 3.7.5-1 [618 kB]
+51% [6 apt-cacher-ng 8192 B/618 kB 1%]                                      100% [Working]              Fetched 1062 kB in 0s (2788 kB/s)
+Preconfiguring packages ...
+Selecting previously unselected package libcares2:amd64.
+(Reading database ... (Reading database ... 5%(Reading database ... 10%(Reading database ... 15%(Reading database ... 20%(Reading database ... 25%(Reading database ... 30%(Reading database ... 35%(Reading database ... 40%(Reading database ... 45%(Reading database ... 50%(Reading database ... 55%(Reading database ... 60%(Reading database ... 65%(Reading database ... 70%(Reading database ... 75%(Reading database ... 80%(Reading database ... 85%(Reading database ... 90%(Reading database ... 95%(Reading database ... 100%(Reading database ... 17621 files and directories currently installed.)
+Preparing to unpack .../0-libcares2_1.34.4-2.1ubuntu0.1_amd64.deb ...
+Unpacking libcares2:amd64 (1.34.4-2.1ubuntu0.1) ...
+Selecting previously unselected package libevent-2.1-7t64:amd64.
+Preparing to unpack .../1-libevent-2.1-7t64_2.1.12-stable-10_amd64.deb ...
+Unpacking libevent-2.1-7t64:amd64 (2.1.12-stable-10) ...
+Selecting previously unselected package libevent-core-2.1-7t64:amd64.
+Preparing to unpack .../2-libevent-core-2.1-7t64_2.1.12-stable-10_amd64.deb ...
+Unpacking libevent-core-2.1-7t64:amd64 (2.1.12-stable-10) ...
+Selecting previously unselected package libevent-pthreads-2.1-7t64:amd64.
+Preparing to unpack .../3-libevent-pthreads-2.1-7t64_2.1.12-stable-10_amd64.deb ...
+Unpacking libevent-pthreads-2.1-7t64:amd64 (2.1.12-stable-10) ...
+Selecting previously unselected package libfuse2t64:amd64.
+Preparing to unpack .../4-libfuse2t64_2.9.9-9_amd64.deb ...
+Adding 'diversion of /lib/x86_64-linux-gnu/libfuse.so.2 to /lib/x86_64-linux-gnu/libfuse.so.2.usr-is-merged by libfuse2t64'
+Adding 'diversion of /lib/x86_64-linux-gnu/libfuse
+2025-11-26 11:10:37 - services.ssh              - INFO - .so.2.9.9 to /lib/x86_64-linux-gnu/libfuse.so.2.9.9.usr-is-merged by libfuse2t64'
+Adding 'diversion of /lib/x86_64-linux-gnu/libulockmgr.so.1 to /lib/x86_64-linux-gnu/libulockmgr.so.1.usr-is-merged by libfuse2t64'
+Adding 'diversion of /lib/x86_64-linux-gnu/libulockmgr.so.1.0.1 to /lib/x86_64-linux-gnu/libulockmgr.so.1.0.1.usr-is-merged by libfuse2t64'
+Unpacking libfuse2t64:amd64 (2.9.9-9) ...
+Selecting previously unselected package apt-cacher-ng.
+Preparing to unpack .../5-apt-cacher-ng_3.7.5-1_amd64.deb ...
+Unpacking apt-cacher-ng (3.7.5-1) ...
+Setting up libevent-2.1-7t64:amd64 (2.1.12-stable-10) ...
+Setting up libcares2:amd64 (1.34.4-2.1ubuntu0.1) ...
+Setting up libevent-core-2.1-7t64:amd64 (2.1.12-stable-10) ...
+Setting up libfuse2t64:amd64 (2.9.9-9) ...
+Removing 'diversion of /lib/x86_64-linux-gnu/libfuse.so.2 to /lib/x86_64-linux-gnu/libfuse.so.2.usr-is-merged by libfuse2t64'
+Removing 'diversion of /lib/x86_64-linux-gnu/libfuse.so.2.9.9 to /lib/x86_64-linux-gnu/libfuse.so.2.9.9.usr-is-merged by libfuse2t64'
+Removing 'diversion of /lib/x86_64-linux-gnu/libulockmgr.so.1 to /lib/x86_64-linux-gnu/libulockmgr.so.1.usr-is-merged by libfuse2t64'
+Removing 'diversion of /lib/x86_64-linux-gnu/libulockmgr.so.1.0.1 to /lib/x86_64-linux-gnu/libulockmgr.so.1.0.1.usr-is-merged by libfuse2t64'
+Setting up libevent-pthreads-2.1-7t64:amd64 (2.1.12-stable-10) ...
+Setting up apt-cacher-ng (3.7.5-1) ...
+Created symlink '/etc/systemd/system/multi-user.target.wants/apt-cacher-ng.service' -> '/usr/lib/systemd/system/apt-cacher-ng.service'.
+Processing triggers for man-db (2.13.0-1) ...
+Processing triggers for libc-bin (2.41-6ubuntu1) ...
+2025-11-26 11:10:37 - services.ssh              - INFO - Running: command -v apt-cacher-ng >/dev/null && echo exists || echo not_found
+2025-11-26 11:10:37 - services.ssh              - INFO - exists
+2025-11-26 11:10:37 - services.ssh              - INFO - Running: systemctl list-unit-files apt-cacher-ng.service 2>&1 | grep -q apt-cacher-ng.service && echo 'exists' || echo 'missing'
+2025-11-26 11:10:38 - services.ssh              - INFO - exists
+2025-11-26 11:10:38 - libs.container_manager    - INFO - [5/7] Action 'apt-cacher-ng installation' completed successfully
+2025-11-26 11:10:38 - libs.container_manager    - INFO - ==================================================
+2025-11-26 11:10:38 - libs.container_manager    - INFO - [Overall: 13%] [Container 'apt-cache': 85%] [Step: 7] Starting action: apt-cacher-ng port configuration
+2025-11-26 11:10:38 - libs.container_manager    - INFO - ==================================================
+2025-11-26 11:10:38 - services.ssh              - INFO - Running: sudo -n bash -c 'sed -i '"'"'s/^#\s*Port:.*/Port: 3142/'"'"' /etc/apt-cacher-ng/acng.conf 2>&1'
+2025-11-26 11:10:38 - actions.configure_cache_port - INFO - Configuring apt-cacher-ng timeout and retry settings...
+2025-11-26 11:10:38 - services.ssh              - INFO - Running: sudo -n bash -c 'grep -E '"'"'^#?DlMaxRetries:'"'"' /etc/apt-cacher-ng/acng.conf || echo '"'"'not_found'"'"''
+2025-11-26 11:10:38 - services.ssh              - INFO - not_found
+2025-11-26 11:10:38 - services.ssh              - INFO - Running: sudo -n bash -c 'echo cHJpbnRmICdEbE1heFJldHJpZXM6IDUKJyA+PiAvZXRjL2FwdC1jYWNoZXItbmcvYWNuZy5jb25mIDI+JjE= | base64 -d | bash'
+2025-11-26 11:10:38 - services.ssh              - INFO - Running: sudo -n bash -c 'grep -E '"'"'^#?NetworkTimeout:'"'"' /etc/apt-cacher-ng/acng.conf || echo '"'"'not_found'"'"''
+2025-11-26 11:10:38 - services.ssh              - INFO - not_found
+2025-11-26 11:10:38 - services.ssh              - INFO - Running: sudo -n bash -c 'echo cHJpbnRmICdOZXR3b3JrVGltZW91dDogMTIwCicgPj4gL2V0Yy9hcHQtY2FjaGVyLW5nL2FjbmcuY29uZiAyPiYx | base64 -d | bash'
+2025-11-26 11:10:38 - services.ssh              - INFO - Running: sudo -n bash -c 'grep -E '"'"'^#?DisconnectTimeout:'"'"' /etc/apt-cacher-ng/acng.conf || echo '"'"'not_found'"'"''
+2025-11-26 11:10:38 - services.ssh              - INFO - not_found
+2025-11-26 11:10:38 - services.ssh              - INFO - Running: sudo -n bash -c 'echo cHJpbnRmICdEaXNjb25uZWN0VGltZW91dDogMzAKJyA+PiAvZXRjL2FwdC1jYWNoZXItbmcvYWNuZy5jb25mIDI+JjE= | base64 -d | bash'
+2025-11-26 11:10:38 - actions.configure_cache_port - INFO - Restarting apt-cacher-ng service to apply configuration changes...
+2025-11-26 11:10:38 - services.ssh              - INFO - Running: sudo -n bash -c 'systemctl restart apt-cacher-ng 2>&1'
+2025-11-26 11:10:40 - services.ssh              - INFO - Running: sudo -n bash -c 'systemctl is-active apt-cacher-ng 2>/dev/null || echo inactive'
+2025-11-26 11:10:40 - services.ssh              - INFO - active
+2025-11-26 11:10:40 - libs.container_manager    - INFO - [6/7] Action 'apt-cacher-ng port configuration' completed successfully
+2025-11-26 11:10:40 - libs.container_manager    - INFO - ==================================================
+2025-11-26 11:10:40 - libs.container_manager    - INFO - [Overall: 15%] [Container 'apt-cache': 100%] [Step: 8] Starting action: apt-cacher-ng service enablement
+2025-11-26 11:10:40 - libs.container_manager    - INFO - ==================================================
+2025-11-26 11:10:40 - services.ssh              - INFO - Running: sudo -n bash -c 'systemctl enable apt-cacher-ng 2>&1'
+2025-11-26 11:10:41 - services.ssh              - INFO - Synchronizing state of apt-cacher-ng.service with SysV service script with /usr/lib/systemd/systemd-sysv-install.
+Executing: /usr/lib/systemd/systemd-sysv-install enable apt-cacher-ng
+2025-11-26 11:10:41 - services.ssh              - INFO - Running: sudo -n bash -c 'systemctl restart apt-cacher-ng 2>&1'
+2025-11-26 11:10:43 - services.ssh              - INFO - Running: sudo -n bash -c 'systemctl is-active apt-cacher-ng 2>/dev/null || echo inactive'
+2025-11-26 11:10:43 - services.ssh              - INFO - active
+2025-11-26 11:10:45 - services.ssh              - INFO - Running: sudo -n bash -c 'systemctl is-active apt-cacher-ng 2>/dev/null || echo inactive'
+2025-11-26 11:10:45 - services.ssh              - INFO - active
+2025-11-26 11:10:45 - libs.container_manager    - INFO - [7/7] Action 'apt-cacher-ng service enablement' completed successfully
+2025-11-26 11:10:45 - libs.container_manager    - INFO - Container 'apt-cache' created successfully
+2025-11-26 11:10:45 - commands.deploy           - INFO - Verifying apt-cache service is ready...

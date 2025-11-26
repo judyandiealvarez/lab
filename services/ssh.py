@@ -188,9 +188,10 @@ class SSHService:
                             received_output = True
                             last_output_time = current_time
                             output_lines.append(data)
-                            sys.stdout.write(data)
-                            sys.stdout.flush()
-                            logger.info(data.rstrip())
+                            if self.ssh_config.verbose:
+                                sys.stdout.write(data)
+                                sys.stdout.flush()
+                                logger.info(data.rstrip())
                     except (IOError, OSError, UnicodeDecodeError):
                         pass
                 # Read available data from stderr
@@ -201,9 +202,10 @@ class SSHService:
                             received_output = True
                             last_output_time = current_time
                             error_lines.append(data)
-                            sys.stderr.write(data)
-                            sys.stderr.flush()
-                            logger.error(data.rstrip())
+                            if self.ssh_config.verbose:
+                                sys.stderr.write(data)
+                                sys.stderr.flush()
+                                logger.error(data.rstrip())
                     except (IOError, OSError, UnicodeDecodeError):
                         pass
                 # Check for timeout
@@ -219,15 +221,17 @@ class SSHService:
                 remaining = stdout.read().decode("utf-8", errors="replace")
                 if remaining:
                     output_lines.append(remaining)
-                    sys.stdout.write(remaining)
-                    sys.stdout.flush()
-                    logger.info(remaining.rstrip())
+                    if self.ssh_config.verbose:
+                        sys.stdout.write(remaining)
+                        sys.stdout.flush()
+                        logger.info(remaining.rstrip())
                 remaining_err = stderr.read().decode("utf-8", errors="replace")
                 if remaining_err:
                     error_lines.append(remaining_err)
-                    sys.stderr.write(remaining_err)
-                    sys.stderr.flush()
-                    logger.error(remaining_err.rstrip())
+                    if self.ssh_config.verbose:
+                        sys.stderr.write(remaining_err)
+                        sys.stderr.flush()
+                        logger.error(remaining_err.rstrip())
             except (IOError, OSError, UnicodeDecodeError):
                 pass
             # Get exit status

@@ -5,6 +5,7 @@ Provides a centralized logger with console and optional file output
 import inspect
 import logging
 import sys
+from datetime import datetime
 from pathlib import Path
 DEFAULT_LOGGER_NAME = "lab"
 
@@ -17,7 +18,7 @@ def setup_logging(level=logging.INFO, log_file=None, format_string=None):
         format_string: Custom format string (default: uses standard format)
     """
     if format_string is None:
-        format_string = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+        format_string = "%(asctime)s - %(name)-25s - %(levelname)s - %(message)s"
     date_format = "%Y-%m-%d %H:%M:%S"
     # Create formatter
     formatter = logging.Formatter(format_string, datefmt=date_format)
@@ -58,13 +59,21 @@ def get_logger(name=None):
             name = DEFAULT_LOGGER_NAME
     return logging.getLogger(name)
 
-def init_logger(level=logging.INFO, log_file=None):
+def init_logger(level=logging.INFO, log_file=None, always_log_to_file=True):
     """
     Initialize the default logger (called once at startup)
     Args:
         level: Logging level
-        log_file: Optional log file path
+        log_file: Optional log file path (if None and always_log_to_file=True, creates timestamped log)
+        always_log_to_file: If True and log_file is None, creates a timestamped log file in logs/ directory
     """
+    if log_file is None and always_log_to_file:
+        # Create logs directory
+        logs_dir = Path("logs")
+        logs_dir.mkdir(exist_ok=True)
+        # Create timestamped log file
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        log_file = logs_dir / f"lab_{timestamp}.log"
     setup_logging(level=level, log_file=log_file)
     return logging.getLogger(DEFAULT_LOGGER_NAME)
 

@@ -128,6 +128,7 @@ class SSHConfig:
     default_username: str = "root"
     look_for_keys: bool = True
     allow_agent: bool = True
+    verbose: bool = False
 @dataclass
 
 class WaitsConfig:  # pylint: disable=too-many-instance-attributes
@@ -182,7 +183,7 @@ class LabConfig:  # pylint: disable=too-many-instance-attributes
     swarm_workers: List[ContainerConfig] = field(default_factory=list)
     @classmethod
 
-    def from_dict(cls, data: Dict[str, Any]) -> "LabConfig":  # pylint: disable=too-many-locals
+    def from_dict(cls, data: Dict[str, Any], verbose: bool = False) -> "LabConfig":  # pylint: disable=too-many-locals
         """Create LabConfig from dictionary (loaded from YAML)"""
         # Helper to create ContainerResources from dict
         def make_resources(res_dict: Optional[Dict]) -> Optional[ContainerResources]:
@@ -302,7 +303,10 @@ class LabConfig:  # pylint: disable=too-many-instance-attributes
         )
         # Parse SSH
         ssh_data = data["ssh"]
-        ssh = SSHConfig(connect_timeout=ssh_data["connect_timeout"], batch_mode=ssh_data["batch_mode"],
+        ssh = SSHConfig(
+            connect_timeout=ssh_data["connect_timeout"],
+            batch_mode=ssh_data["batch_mode"],
+            verbose=verbose,
         )
         # Parse waits
         waits_data = data["waits"]

@@ -1,0 +1,91 @@
+2025-11-26 16:32:18 - commands.deploy           - INFO - ==================================================
+2025-11-26 16:32:18 - commands.deploy           - INFO - Deploying Lab Environment
+2025-11-26 16:32:18 - commands.deploy           - INFO - ==================================================
+2025-11-26 16:32:18 - commands.deploy           - INFO - 
+2025-11-26 16:32:18 - commands.deploy           - INFO - Deployment plan (total 51 steps, running 2-2):
+2025-11-26 16:32:18 - commands.deploy           - INFO -   [ 1] skip apt-cache: create container
+2025-11-26 16:32:18 - commands.deploy           - INFO -   [ 2] RUN  apt-cache: cloud-init wait
+2025-11-26 16:32:18 - commands.deploy           - INFO -   [ 3] skip apt-cache: AppArmor parser stub
+2025-11-26 16:32:18 - commands.deploy           - INFO -   [ 4] skip apt-cache: disable automatic apt units
+2025-11-26 16:32:18 - commands.deploy           - INFO -   [ 5] skip apt-cache: systemd sysctl override
+2025-11-26 16:32:18 - commands.deploy           - INFO -   [ 6] skip apt-cache: apt-cacher-ng installation
+2025-11-26 16:32:18 - commands.deploy           - INFO -   [ 7] skip apt-cache: apt-cacher-ng port configuration
+2025-11-26 16:32:18 - commands.deploy           - INFO -   [ 8] skip apt-cache: apt-cacher-ng service enablement
+2025-11-26 16:32:18 - commands.deploy           - INFO -   [ 9] skip ubuntu-tmpl: create template
+2025-11-26 16:32:18 - commands.deploy           - INFO -   [10] skip ubuntu-tmpl: apt cache proxy configuration
+2025-11-26 16:32:18 - commands.deploy           - INFO -   [11] skip ubuntu-tmpl: AppArmor parser stub
+2025-11-26 16:32:18 - commands.deploy           - INFO -   [12] skip ubuntu-tmpl: apt sources fix
+2025-11-26 16:32:18 - commands.deploy           - INFO -   [13] skip ubuntu-tmpl: system upgrade
+2025-11-26 16:32:18 - commands.deploy           - INFO -   [14] skip ubuntu-tmpl: openssh-server installation
+2025-11-26 16:32:18 - commands.deploy           - INFO -   [15] skip ubuntu-tmpl: SSH service enablement
+2025-11-26 16:32:18 - commands.deploy           - INFO -   [16] skip ubuntu-tmpl: base tools installation
+2025-11-26 16:32:18 - commands.deploy           - INFO -   [17] skip ubuntu-tmpl: template cleanup
+2025-11-26 16:32:18 - commands.deploy           - INFO -   [18] skip ubuntu-tmpl: template archive creation
+2025-11-26 16:32:18 - commands.deploy           - INFO -   [19] skip docker-tmpl: create template
+2025-11-26 16:32:18 - commands.deploy           - INFO -   [20] skip docker-tmpl: Docker installation
+2025-11-26 16:32:18 - commands.deploy           - INFO -   [21] skip docker-tmpl: Docker service start
+2025-11-26 16:32:18 - commands.deploy           - INFO -   [22] skip pgsql: create container
+2025-11-26 16:32:18 - commands.deploy           - INFO -   [23] skip pgsql: cloud-init wait
+2025-11-26 16:32:18 - commands.deploy           - INFO -   [24] skip pgsql: postgresql installation
+2025-11-26 16:32:18 - commands.deploy           - INFO -   [25] skip pgsql: postgresql service configuration
+2025-11-26 16:32:18 - commands.deploy           - INFO -   [26] skip pgsql: postgresql files configuration
+2025-11-26 16:32:18 - commands.deploy           - INFO -   [27] skip pgsql: postgresql password setup
+2025-11-26 16:32:18 - commands.deploy           - INFO -   [28] skip haproxy: create container
+2025-11-26 16:32:18 - commands.deploy           - INFO -   [29] skip haproxy: cloud-init wait
+2025-11-26 16:32:18 - commands.deploy           - INFO -   [30] skip haproxy: haproxy installation
+2025-11-26 16:32:18 - commands.deploy           - INFO -   [31] skip haproxy: haproxy configuration
+2025-11-26 16:32:18 - commands.deploy           - INFO -   [32] skip haproxy: haproxy systemd override
+2025-11-26 16:32:18 - commands.deploy           - INFO -   [33] skip haproxy: haproxy service enablement
+2025-11-26 16:32:18 - commands.deploy           - INFO -   [34] skip dns: create container
+2025-11-26 16:32:18 - commands.deploy           - INFO -   [35] skip dns: cloud-init wait
+2025-11-26 16:32:18 - commands.deploy           - INFO -   [36] skip dns: dotnet installation
+2025-11-26 16:32:18 - commands.deploy           - INFO -   [37] skip dns: disable systemd resolved
+2025-11-26 16:32:18 - commands.deploy           - INFO -   [38] skip dns: sins dns installation
+2025-11-26 16:32:18 - commands.deploy           - INFO -   [39] skip dns: sins dns service configuration
+2025-11-26 16:32:18 - commands.deploy           - INFO -   [40] skip dns: sins dns service enablement
+2025-11-26 16:32:18 - commands.deploy           - INFO -   [41] skip swarm-manager: create container
+2025-11-26 16:32:18 - commands.deploy           - INFO -   [42] skip swarm-manager: cloud-init wait
+2025-11-26 16:32:18 - commands.deploy           - INFO -   [43] skip swarm-manager: lxc sysctl access configuration
+2025-11-26 16:32:18 - commands.deploy           - INFO -   [44] skip swarm-manager: docker service start
+2025-11-26 16:32:18 - commands.deploy           - INFO -   [45] skip swarm-manager: docker sysctl configuration
+2025-11-26 16:32:18 - commands.deploy           - INFO -   [46] skip swarm-node-1: create container
+2025-11-26 16:32:18 - commands.deploy           - INFO -   [47] skip swarm-node-1: cloud-init wait
+2025-11-26 16:32:18 - commands.deploy           - INFO -   [48] skip swarm-node-1: docker service start
+2025-11-26 16:32:18 - commands.deploy           - INFO -   [49] skip swarm-node-2: create container
+2025-11-26 16:32:18 - commands.deploy           - INFO -   [50] skip swarm-node-2: cloud-init wait
+2025-11-26 16:32:18 - commands.deploy           - INFO -   [51] skip swarm-node-2: docker service start
+2025-11-26 16:32:18 - commands.deploy           - INFO - 
+[1/51] Creating apt-cache container first...
+2025-11-26 16:32:18 - paramiko.transport        - INFO - Connected (version 2.0, client OpenSSH_9.2p1)
+2025-11-26 16:32:18 - paramiko.transport        - INFO - Authentication (publickey) successful!
+2025-11-26 16:32:18 - services.ssh              - INFO - SSH connection established to root@10.11.3.4
+2025-11-26 16:32:18 - services.ssh              - INFO - Running: pct list | grep '^3020 '
+2025-11-26 16:32:20 - services.ssh              - INFO - 3020       running                 apt-cache
+2025-11-26 16:32:20 - libs.container_manager    - INFO - Container 'apt-cache' already exists and start_step is 2, skipping creation and proceeding to actions
+2025-11-26 16:32:20 - paramiko.transport        - INFO - Connected (version 2.0, client OpenSSH_9.9p1)
+2025-11-26 16:32:21 - paramiko.transport        - INFO - Authentication (publickey) successful!
+2025-11-26 16:32:21 - services.ssh              - INFO - SSH connection established to jaal@10.11.3.20
+2025-11-26 16:32:23 - commands.deploy           - INFO - Reached end_step 2 after apt-cache stage, stopping deployment pipeline
+2025-11-26 16:32:23 - commands.deploy           - INFO - 
+==================================================
+2025-11-26 16:32:23 - commands.deploy           - INFO - Deployment Complete!
+2025-11-26 16:32:23 - commands.deploy           - INFO - ==================================================
+2025-11-26 16:32:23 - commands.deploy           - INFO - 
+Containers:
+2025-11-26 16:32:23 - commands.deploy           - INFO -   - 3020: apt-cache (10.11.3.20)
+2025-11-26 16:32:23 - commands.deploy           - INFO -   - 3018: pgsql (10.11.3.18)
+2025-11-26 16:32:23 - commands.deploy           - INFO -   - 3017: haproxy (10.11.3.17)
+2025-11-26 16:32:23 - commands.deploy           - INFO -   - 3019: dns (10.11.3.19)
+2025-11-26 16:32:23 - commands.deploy           - INFO -   - 3005: swarm-manager (10.11.3.5)
+2025-11-26 16:32:23 - commands.deploy           - INFO -   - 3006: swarm-node-1 (10.11.3.6)
+2025-11-26 16:32:23 - commands.deploy           - INFO -   - 3007: swarm-node-2 (10.11.3.7)
+2025-11-26 16:32:23 - commands.deploy           - INFO - 
+Portainer: https://10.11.3.5:9443
+2025-11-26 16:32:23 - commands.deploy           - INFO - PostgreSQL: 10.11.3.18:5432
+2025-11-26 16:32:23 - commands.deploy           - INFO - HAProxy: http://10.11.3.17:80 (Stats: http://10.11.3.17:8404)
+2025-11-26 16:32:23 - commands.deploy           - INFO - 
+GlusterFS:
+2025-11-26 16:32:23 - commands.deploy           - INFO -   Volume: swarm-storage
+2025-11-26 16:32:23 - commands.deploy           - INFO -   Mount: /mnt/gluster on all nodes
+2025-11-26 16:32:23 - commands.deploy           - INFO - 
+✓ All service ports are responding

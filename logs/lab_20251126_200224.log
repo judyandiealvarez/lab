@@ -1,0 +1,74 @@
+2025-11-26 20:02:24 - commands.deploy           - INFO - ==================================================
+2025-11-26 20:02:24 - commands.deploy           - INFO - Deploying Lab Environment
+2025-11-26 20:02:24 - commands.deploy           - INFO - ==================================================
+2025-11-26 20:02:24 - commands.deploy           - INFO - 
+2025-11-26 20:02:24 - commands.deploy           - INFO - Deploy plan (total 51 steps, running 1-51):
+2025-11-26 20:02:24 - commands.deploy           - INFO -   [ 1] RUN  apt-cache: create container
+2025-11-26 20:02:24 - commands.deploy           - INFO -   [ 2] RUN  apt-cache: cloud-init wait
+2025-11-26 20:02:24 - commands.deploy           - INFO -   [ 3] RUN  apt-cache: AppArmor parser stub
+2025-11-26 20:02:24 - commands.deploy           - INFO -   [ 4] RUN  apt-cache: disable automatic apt units
+2025-11-26 20:02:24 - commands.deploy           - INFO -   [ 5] RUN  apt-cache: systemd sysctl override
+2025-11-26 20:02:24 - commands.deploy           - INFO -   [ 6] RUN  apt-cache: apt-cacher-ng installation
+2025-11-26 20:02:24 - commands.deploy           - INFO -   [ 7] RUN  apt-cache: apt-cacher-ng port configuration
+2025-11-26 20:02:24 - commands.deploy           - INFO -   [ 8] RUN  apt-cache: apt-cacher-ng service enablement
+2025-11-26 20:02:24 - commands.deploy           - INFO -   [ 9] RUN  ubuntu-tmpl: create template
+2025-11-26 20:02:24 - commands.deploy           - INFO -   [10] RUN  ubuntu-tmpl: apt cache proxy configuration
+2025-11-26 20:02:24 - commands.deploy           - INFO -   [11] RUN  ubuntu-tmpl: AppArmor parser stub
+2025-11-26 20:02:24 - commands.deploy           - INFO -   [12] RUN  ubuntu-tmpl: apt sources fix
+2025-11-26 20:02:24 - commands.deploy           - INFO -   [13] RUN  ubuntu-tmpl: system upgrade
+2025-11-26 20:02:24 - commands.deploy           - INFO -   [14] RUN  ubuntu-tmpl: openssh-server installation
+2025-11-26 20:02:24 - commands.deploy           - INFO -   [15] RUN  ubuntu-tmpl: SSH service enablement
+2025-11-26 20:02:24 - commands.deploy           - INFO -   [16] RUN  ubuntu-tmpl: base tools installation
+2025-11-26 20:02:24 - commands.deploy           - INFO -   [17] RUN  ubuntu-tmpl: template cleanup
+2025-11-26 20:02:24 - commands.deploy           - INFO -   [18] RUN  ubuntu-tmpl: template archive creation
+2025-11-26 20:02:24 - commands.deploy           - INFO -   [19] RUN  docker-tmpl: create template
+2025-11-26 20:02:24 - commands.deploy           - INFO -   [20] RUN  docker-tmpl: Docker installation
+2025-11-26 20:02:24 - commands.deploy           - INFO -   [21] RUN  docker-tmpl: Docker service start
+2025-11-26 20:02:24 - commands.deploy           - INFO -   [22] RUN  pgsql: create container
+2025-11-26 20:02:24 - commands.deploy           - INFO -   [23] RUN  pgsql: cloud-init wait
+2025-11-26 20:02:24 - commands.deploy           - INFO -   [24] RUN  pgsql: postgresql installation
+2025-11-26 20:02:24 - commands.deploy           - INFO -   [25] RUN  pgsql: postgresql service configuration
+2025-11-26 20:02:24 - commands.deploy           - INFO -   [26] RUN  pgsql: postgresql files configuration
+2025-11-26 20:02:24 - commands.deploy           - INFO -   [27] RUN  pgsql: postgresql password setup
+2025-11-26 20:02:24 - commands.deploy           - INFO -   [28] RUN  haproxy: create container
+2025-11-26 20:02:24 - commands.deploy           - INFO -   [29] RUN  haproxy: cloud-init wait
+2025-11-26 20:02:24 - commands.deploy           - INFO -   [30] RUN  haproxy: haproxy installation
+2025-11-26 20:02:24 - commands.deploy           - INFO -   [31] RUN  haproxy: haproxy configuration
+2025-11-26 20:02:24 - commands.deploy           - INFO -   [32] RUN  haproxy: haproxy systemd override
+2025-11-26 20:02:24 - commands.deploy           - INFO -   [33] RUN  haproxy: haproxy service enablement
+2025-11-26 20:02:24 - commands.deploy           - INFO -   [34] RUN  dns: create container
+2025-11-26 20:02:24 - commands.deploy           - INFO -   [35] RUN  dns: cloud-init wait
+2025-11-26 20:02:24 - commands.deploy           - INFO -   [36] RUN  dns: dotnet installation
+2025-11-26 20:02:24 - commands.deploy           - INFO -   [37] RUN  dns: disable systemd resolved
+2025-11-26 20:02:24 - commands.deploy           - INFO -   [38] RUN  dns: sins dns installation
+2025-11-26 20:02:24 - commands.deploy           - INFO -   [39] RUN  dns: sins dns service configuration
+2025-11-26 20:02:24 - commands.deploy           - INFO -   [40] RUN  dns: sins dns service enablement
+2025-11-26 20:02:24 - commands.deploy           - INFO -   [41] RUN  swarm-manager: create container
+2025-11-26 20:02:24 - commands.deploy           - INFO -   [42] RUN  swarm-manager: cloud-init wait
+2025-11-26 20:02:24 - commands.deploy           - INFO -   [43] RUN  swarm-manager: lxc sysctl access configuration
+2025-11-26 20:02:24 - commands.deploy           - INFO -   [44] RUN  swarm-manager: docker service start
+2025-11-26 20:02:24 - commands.deploy           - INFO -   [45] RUN  swarm-manager: docker sysctl configuration
+2025-11-26 20:02:24 - commands.deploy           - INFO -   [46] RUN  swarm-node-1: create container
+2025-11-26 20:02:24 - commands.deploy           - INFO -   [47] RUN  swarm-node-1: cloud-init wait
+2025-11-26 20:02:24 - commands.deploy           - INFO -   [48] RUN  swarm-node-1: docker service start
+2025-11-26 20:02:24 - commands.deploy           - INFO -   [49] RUN  swarm-node-2: create container
+2025-11-26 20:02:24 - commands.deploy           - INFO -   [50] RUN  swarm-node-2: cloud-init wait
+2025-11-26 20:02:24 - commands.deploy           - INFO -   [51] RUN  swarm-node-2: docker service start
+2025-11-26 20:02:24 - commands.deploy           - INFO - 
+[1/51] Creating apt-cache container first...
+2025-11-26 20:02:24 - libs.container_manager    - INFO - ==================================================
+2025-11-26 20:02:24 - libs.container_manager    - INFO - [Overall: 1%] [Container 'apt-cache': 0%] [Step: 1] Starting container creation
+2025-11-26 20:02:24 - libs.container_manager    - INFO - ==================================================
+2025-11-26 20:02:24 - paramiko.transport        - INFO - Connected (version 2.0, client OpenSSH_9.2p1)
+2025-11-26 20:02:24 - paramiko.transport        - INFO - Authentication (publickey) successful!
+2025-11-26 20:02:24 - services.ssh              - INFO - SSH connection established to root@10.11.3.4
+2025-11-26 20:02:24 - services.ssh              - INFO - Running: pct destroy 3020 --force
+2025-11-26 20:02:28 - services.ssh              - INFO - Running: test -f /var/lib/vz/template/cache/ubuntu-25.04-standard_25.04-1.1_amd64.tar.zst && echo exists || echo missing
+2025-11-26 20:02:28 - services.ssh              - INFO - Running: test -f /var/lib/vz/template/cache/ubuntu-25.04-standard_25.04-1.1_amd64.tar.zst && test -r /var/lib/vz/template/cache/ubuntu-25.04-standard_25.04-1.1_amd64.tar.zst && echo 'valid' || echo 'invalid'
+2025-11-26 20:02:28 - libs.container_manager    - INFO - Checking if container 3020 already exists...
+2025-11-26 20:02:28 - paramiko.transport        - INFO - Connected (version 2.0, client OpenSSH_9.2p1)
+2025-11-26 20:02:29 - paramiko.transport        - INFO - Authentication (publickey) successful!
+2025-11-26 20:02:29 - services.ssh              - INFO - SSH connection established to root@10.11.3.4
+2025-11-26 20:02:29 - services.ssh              - INFO - Running: pct list | grep '^3020 '
+2025-11-26 20:02:30 - libs.container_manager    - INFO - Creating container 3020 from template...
+2025-11-26 20:02:30 - services.ssh              - INFO - Running: pct create 3020 /var/lib/vz/template/cache/ubuntu-25.04-standard_25.04-1.1_amd64.tar.zst --hostname apt-cache --memory 2048 --swap 2048 --cores 4 --net0 name=eth0,bridge=vmbr0,firewall=0,gw=10.11.3.253,ip=10.11.3.20/24,ip6=dhcp,type=veth --rootfs sdb:20 --unprivileged 1 --ostype ubuntu --arch amd64

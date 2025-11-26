@@ -34,6 +34,7 @@ from .enable_ssh_service import EnableSshServiceAction
 from .install_base_tools import InstallBaseToolsAction
 from .template_cleanup import TemplateCleanupAction
 from .create_template_archive import CreateTemplateArchiveAction
+from .wait_apt_cache_ready import WaitAptCacheReadyAction
 
 __all__ = [
     "Action",
@@ -69,5 +70,6 @@ __all__ = [
     "InstallBaseToolsAction",
     "TemplateCleanupAction",
     "CreateTemplateArchiveAction",
+    "WaitAptCacheReadyAction",
 ]
 

@@ -96,3 +96,9 @@ class FileOps(CommandWrapper):
         cmd = f"find {shlex.quote(directory)} -type {file_type} -name '{pattern_escaped}' -delete"
         cmd += " 2>/dev/null" if self._suppress_errors else " 2>&1"
         return cmd
+
+    def exists(self, path: str) -> str:
+        """Generate command to check if file exists."""
+        cmd = f"test -f {shlex.quote(path)} && echo exists || echo not_found"
+        cmd += " 2>/dev/null" if self._suppress_errors else " 2>&1"
+        return cmd

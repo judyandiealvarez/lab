@@ -1,0 +1,18 @@
+2025-11-26 12:44:34 - commands.cleanup          - INFO - ==================================================
+2025-11-26 12:44:34 - commands.cleanup          - INFO - Cleaning Up Lab Environment
+2025-11-26 12:44:34 - commands.cleanup          - INFO - ==================================================
+2025-11-26 12:44:34 - commands.cleanup          - INFO - Destroying ALL containers and templates...
+2025-11-26 12:44:34 - paramiko.transport        - INFO - Connected (version 2.0, client OpenSSH_9.2p1)
+2025-11-26 12:44:34 - paramiko.transport        - INFO - Authentication (publickey) successful!
+2025-11-26 12:44:34 - services.ssh              - INFO - SSH connection established to root@10.11.3.4
+2025-11-26 12:44:34 - commands.cleanup          - INFO - Stopping and destroying containers...
+2025-11-26 12:44:34 - services.ssh              - INFO - Running: pct list 2>&1
+2025-11-26 12:44:35 - services.ssh              - INFO - VMID       Status     Lock         Name                
+3008       running                 docker-tmpl         
+3017       running                 haproxy             
+3018       running                 pgsql               
+3019       running                 dns                 
+3020       running                 apt-cache
+2025-11-26 12:44:35 - commands.cleanup          - INFO - Found 5 containers to destroy: 3008, 3017, 3018, 3019, 3020
+2025-11-26 12:44:35 - commands.cleanup          - INFO - [1/5] Processing container 3008...
+2025-11-26 12:44:35 - services.ssh              - INFO - Running: pct list | grep '^3008 ' || echo 'not_found'

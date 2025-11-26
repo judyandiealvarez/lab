@@ -2,6 +2,7 @@
 APT/APT-GET command wrapper with fluent API
 """
 import logging
+import shlex
 from typing import List, Optional, Dict
 from .base import CommandWrapper
 logger = logging.getLogger(__name__)
@@ -131,7 +132,15 @@ class Apt(CommandWrapper):
             merged_options.update(options)
         if merged_options:
             for key, value in merged_options.items():
-                parts.append(f"-o {key}={value}")
+                # For Dpkg::Options::, split multiple options and add each separately
+                if key == "Dpkg::Options::" and " " in str(value):
+                    # Split the value and add each option separately
+                    options_list = str(value).split()
+                    for opt in options_list:
+                        parts.append(f"-o {key}={opt}")
+                else:
+                    # Quote the value properly to handle spaces
+                    parts.append(f"-o {key}={shlex.quote(str(value))}")
         # Packages
         if packages:
             parts.extend(packages)
@@ -152,14 +161,22 @@ class Apt(CommandWrapper):
         """Generate command to update package lists"""
         tool = self._get_tool()
         flags = self._get_flags([])
-        return self._build_command(tool, "update", flags=flags, options=self._options)
+        # Add option to hide progress by default
+        update_options = self._options.copy() if self._options else {}
+        if "APT::Get::Hide-Progress" not in update_options:
+            update_options["APT::Get::Hide-Progress"] = "true"
+        return self._build_command(tool, "update", flags=flags, options=update_options)
 
     def upgrade(self) -> str:
         """Generate command to upgrade packages"""
         tool = self._get_tool()
         action = "dist-upgrade" if self._dist_upgrade else "upgrade"
         flags = self._get_flags(["-y"])
-        return self._build_command(tool, action, flags=flags, options=self._options)
+        # Add option to hide progress by default
+        upgrade_options = self._options.copy() if self._options else {}
+        if "APT::Get::Hide-Progress" not in upgrade_options:
+            upgrade_options["APT::Get::Hide-Progress"] = "true"
+        return self._build_command(tool, action, flags=flags, options=upgrade_options)
 
     def install(self, packages: List[str]) -> str:
         """Generate command to install packages"""
@@ -169,7 +186,11 @@ class Apt(CommandWrapper):
             flags.append("--no-install-recommends")
         if self._reinstall:
             flags.append("--reinstall")
-        return self._build_command(tool, "install", flags=flags, options=self._options, packages=packages)
+        # Add option to hide progress by default
+        install_options = self._options.copy() if self._options else {}
+        if "APT::Get::Hide-Progress" not in install_options:
+            install_options["APT::Get::Hide-Progress"] = "true"
+        return self._build_command(tool, "install", flags=flags, options=install_options, packages=packages)
 
     def remove(self, packages: List[str]) -> str:
         """Generate command to remove packages"""

@@ -1,0 +1,17 @@
+2025-11-25 23:18:48 - commands.cleanup - INFO - ==================================================
+2025-11-25 23:18:48 - commands.cleanup - INFO - Cleaning Up Lab Environment
+2025-11-25 23:18:48 - commands.cleanup - INFO - ==================================================
+2025-11-25 23:18:48 - commands.cleanup - INFO - Destroying ALL containers and templates...
+2025-11-25 23:18:48 - paramiko.transport - INFO - Connected (version 2.0, client OpenSSH_9.2p1)
+2025-11-25 23:18:48 - paramiko.transport - INFO - Authentication (publickey) successful!
+2025-11-25 23:18:48 - services.ssh - INFO - SSH connection established to root@10.11.3.4
+2025-11-25 23:18:48 - commands.cleanup - INFO - Stopping and destroying containers...
+2025-11-25 23:18:48 - services.ssh - INFO - Running: pct list 2>&1
+2025-11-25 23:18:50 - commands.cleanup - INFO - No containers found
+2025-11-25 23:18:50 - commands.cleanup - INFO - Removing templates...
+2025-11-25 23:18:50 - commands.cleanup - INFO - Cleaning template directory /var/lib/vz/template/cache...
+2025-11-25 23:18:50 - services.ssh - INFO - Running: find /var/lib/vz/template/cache -maxdepth 1 -type f -name '*.tar.zst' -print | wc -l
+2025-11-25 23:18:50 - services.ssh - INFO - 0
+2025-11-25 23:18:50 - commands.cleanup - INFO - Removing 0 template files...
+2025-11-25 23:18:50 - services.ssh - INFO - Running: find /var/lib/vz/template/cache -maxdepth 1 -type f -name '*.tar.zst' -delete || true
+2025-11-25 23:18:50 - commands.cleanup - INFO - Templates removed

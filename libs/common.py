@@ -110,6 +110,7 @@ def ssh_exec(  # pylint: disable=too-many-arguments,too-many-locals,too-many-ret
                 default_username=cfg.ssh.default_username if hasattr(cfg, "ssh") else "root",
                 look_for_keys=cfg.ssh.look_for_keys if hasattr(cfg, "ssh") else True,
                 allow_agent=cfg.ssh.allow_agent if hasattr(cfg, "ssh") else True,
+                verbose=cfg.ssh.verbose if hasattr(cfg, "ssh") and hasattr(cfg.ssh, "verbose") else False,
             )
             
             # Create SSH service and execute command
@@ -309,6 +310,7 @@ def wait_for_container(  # pylint: disable=too-many-arguments
                         default_username="root",
                         look_for_keys=cfg.ssh.look_for_keys if hasattr(cfg, "ssh") else True,
                         allow_agent=cfg.ssh.allow_agent if hasattr(cfg, "ssh") else True,
+                        verbose=cfg.ssh.verbose if hasattr(cfg, "ssh") and hasattr(cfg.ssh, "verbose") else False,
                     )
                     
                     test_host = f"root@{ip_address}"

@@ -11,6 +11,14 @@
             "program": "lab.py",
             "console": "integratedTerminal",
             "args": "deploy"
+        },
+        {
+            "name": "Python Debugger: Cleanup",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "lab.py",
+            "console": "integratedTerminal",
+            "args": "cleanup"
         }
     ]
 }

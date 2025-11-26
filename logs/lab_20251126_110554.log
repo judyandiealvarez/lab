@@ -1,0 +1,18 @@
+2025-11-26 11:05:54 - commands.deploy           - INFO - ==================================================
+2025-11-26 11:05:54 - commands.deploy           - INFO - Deploying Lab Environment
+2025-11-26 11:05:54 - commands.deploy           - INFO - ==================================================
+2025-11-26 11:05:54 - commands.deploy           - INFO - 
+[1/51] Creating apt-cache container first...
+2025-11-26 11:05:54 - libs.container_manager    - INFO - ==================================================
+2025-11-26 11:05:54 - libs.container_manager    - INFO - [Overall: 1%] [Container 'apt-cache': 0%] [Step: 1] Starting container creation
+2025-11-26 11:05:54 - libs.container_manager    - INFO - ==================================================
+2025-11-26 11:05:54 - paramiko.transport        - INFO - Connected (version 2.0, client OpenSSH_9.2p1)
+2025-11-26 11:05:54 - paramiko.transport        - INFO - Authentication (publickey) successful!
+2025-11-26 11:05:54 - services.ssh              - INFO - SSH connection established to root@10.11.3.4
+2025-11-26 11:05:54 - services.ssh              - INFO - Running: pct destroy 3020 --force
+2025-11-26 11:05:56 - services.ssh              - INFO - Configuration file 'nodes/pve/lxc/3020.conf' does not exist
+2025-11-26 11:05:56 - services.ssh              - INFO - Running: test -f /var/lib/vz/template/cache/ubuntu-25.04-standard_25.04-1.1_amd64.tar.zst && echo exists || echo missing
+2025-11-26 11:05:56 - services.ssh              - INFO - missing
+2025-11-26 11:05:56 - services.template         - INFO - Base template not found. Downloading ubuntu-25.04-standard_25.04-1.1_amd64.tar.zst...
+2025-11-26 11:05:56 - services.template         - INFO - Running: pveam download local ubuntu-25.04-standard_25.04-1.1_amd64.tar.zst
+2025-11-26 11:05:56 - services.ssh              - INFO - Running: pveam download local ubuntu-25.04-standard_25.04-1.1_amd64.tar.zst

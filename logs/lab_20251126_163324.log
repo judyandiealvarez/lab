@@ -1,0 +1,96 @@
+2025-11-26 16:33:24 - commands.deploy           - INFO - ==================================================
+2025-11-26 16:33:24 - commands.deploy           - INFO - Deploying Lab Environment
+2025-11-26 16:33:24 - commands.deploy           - INFO - ==================================================
+2025-11-26 16:33:24 - commands.deploy           - INFO - 
+2025-11-26 16:33:24 - commands.deploy           - INFO - Deployment plan (total 51 steps, running 1-1):
+2025-11-26 16:33:24 - commands.deploy           - INFO -   [ 1] RUN  apt-cache: create container
+2025-11-26 16:33:24 - commands.deploy           - INFO -   [ 2] skip apt-cache: cloud-init wait
+2025-11-26 16:33:24 - commands.deploy           - INFO -   [ 3] skip apt-cache: AppArmor parser stub
+2025-11-26 16:33:24 - commands.deploy           - INFO -   [ 4] skip apt-cache: disable automatic apt units
+2025-11-26 16:33:24 - commands.deploy           - INFO -   [ 5] skip apt-cache: systemd sysctl override
+2025-11-26 16:33:24 - commands.deploy           - INFO -   [ 6] skip apt-cache: apt-cacher-ng installation
+2025-11-26 16:33:24 - commands.deploy           - INFO -   [ 7] skip apt-cache: apt-cacher-ng port configuration
+2025-11-26 16:33:24 - commands.deploy           - INFO -   [ 8] skip apt-cache: apt-cacher-ng service enablement
+2025-11-26 16:33:24 - commands.deploy           - INFO -   [ 9] skip ubuntu-tmpl: create template
+2025-11-26 16:33:24 - commands.deploy           - INFO -   [10] skip ubuntu-tmpl: apt cache proxy configuration
+2025-11-26 16:33:24 - commands.deploy           - INFO -   [11] skip ubuntu-tmpl: AppArmor parser stub
+2025-11-26 16:33:24 - commands.deploy           - INFO -   [12] skip ubuntu-tmpl: apt sources fix
+2025-11-26 16:33:24 - commands.deploy           - INFO -   [13] skip ubuntu-tmpl: system upgrade
+2025-11-26 16:33:24 - commands.deploy           - INFO -   [14] skip ubuntu-tmpl: openssh-server installation
+2025-11-26 16:33:24 - commands.deploy           - INFO -   [15] skip ubuntu-tmpl: SSH service enablement
+2025-11-26 16:33:24 - commands.deploy           - INFO -   [16] skip ubuntu-tmpl: base tools installation
+2025-11-26 16:33:24 - commands.deploy           - INFO -   [17] skip ubuntu-tmpl: template cleanup
+2025-11-26 16:33:24 - commands.deploy           - INFO -   [18] skip ubuntu-tmpl: template archive creation
+2025-11-26 16:33:24 - commands.deploy           - INFO -   [19] skip docker-tmpl: create template
+2025-11-26 16:33:24 - commands.deploy           - INFO -   [20] skip docker-tmpl: Docker installation
+2025-11-26 16:33:24 - commands.deploy           - INFO -   [21] skip docker-tmpl: Docker service start
+2025-11-26 16:33:24 - commands.deploy           - INFO -   [22] skip pgsql: create container
+2025-11-26 16:33:24 - commands.deploy           - INFO -   [23] skip pgsql: cloud-init wait
+2025-11-26 16:33:24 - commands.deploy           - INFO -   [24] skip pgsql: postgresql installation
+2025-11-26 16:33:24 - commands.deploy           - INFO -   [25] skip pgsql: postgresql service configuration
+2025-11-26 16:33:24 - commands.deploy           - INFO -   [26] skip pgsql: postgresql files configuration
+2025-11-26 16:33:24 - commands.deploy           - INFO -   [27] skip pgsql: postgresql password setup
+2025-11-26 16:33:24 - commands.deploy           - INFO -   [28] skip haproxy: create container
+2025-11-26 16:33:24 - commands.deploy           - INFO -   [29] skip haproxy: cloud-init wait
+2025-11-26 16:33:24 - commands.deploy           - INFO -   [30] skip haproxy: haproxy installation
+2025-11-26 16:33:24 - commands.deploy           - INFO -   [31] skip haproxy: haproxy configuration
+2025-11-26 16:33:24 - commands.deploy           - INFO -   [32] skip haproxy: haproxy systemd override
+2025-11-26 16:33:24 - commands.deploy           - INFO -   [33] skip haproxy: haproxy service enablement
+2025-11-26 16:33:24 - commands.deploy           - INFO -   [34] skip dns: create container
+2025-11-26 16:33:24 - commands.deploy           - INFO -   [35] skip dns: cloud-init wait
+2025-11-26 16:33:24 - commands.deploy           - INFO -   [36] skip dns: dotnet installation
+2025-11-26 16:33:24 - commands.deploy           - INFO -   [37] skip dns: disable systemd resolved
+2025-11-26 16:33:24 - commands.deploy           - INFO -   [38] skip dns: sins dns installation
+2025-11-26 16:33:24 - commands.deploy           - INFO -   [39] skip dns: sins dns service configuration
+2025-11-26 16:33:24 - commands.deploy           - INFO -   [40] skip dns: sins dns service enablement
+2025-11-26 16:33:24 - commands.deploy           - INFO -   [41] skip swarm-manager: create container
+2025-11-26 16:33:24 - commands.deploy           - INFO -   [42] skip swarm-manager: cloud-init wait
+2025-11-26 16:33:24 - commands.deploy           - INFO -   [43] skip swarm-manager: lxc sysctl access configuration
+2025-11-26 16:33:24 - commands.deploy           - INFO -   [44] skip swarm-manager: docker service start
+2025-11-26 16:33:24 - commands.deploy           - INFO -   [45] skip swarm-manager: docker sysctl configuration
+2025-11-26 16:33:24 - commands.deploy           - INFO -   [46] skip swarm-node-1: create container
+2025-11-26 16:33:24 - commands.deploy           - INFO -   [47] skip swarm-node-1: cloud-init wait
+2025-11-26 16:33:24 - commands.deploy           - INFO -   [48] skip swarm-node-1: docker service start
+2025-11-26 16:33:24 - commands.deploy           - INFO -   [49] skip swarm-node-2: create container
+2025-11-26 16:33:24 - commands.deploy           - INFO -   [50] skip swarm-node-2: cloud-init wait
+2025-11-26 16:33:24 - commands.deploy           - INFO -   [51] skip swarm-node-2: docker service start
+2025-11-26 16:33:24 - commands.deploy           - INFO - 
+[1/51] Creating apt-cache container first...
+2025-11-26 16:33:24 - libs.container_manager    - INFO - ==================================================
+2025-11-26 16:33:24 - libs.container_manager    - INFO - [Overall: 1%] [Container 'apt-cache': 0%] [Step: 1] Starting container creation
+2025-11-26 16:33:24 - libs.container_manager    - INFO - ==================================================
+2025-11-26 16:33:24 - paramiko.transport        - INFO - Connected (version 2.0, client OpenSSH_9.2p1)
+2025-11-26 16:33:25 - paramiko.transport        - INFO - Authentication (publickey) successful!
+2025-11-26 16:33:25 - services.ssh              - INFO - SSH connection established to root@10.11.3.4
+2025-11-26 16:33:25 - services.ssh              - INFO - Running: pct destroy 3020 --force
+2025-11-26 16:33:28 - services.ssh              - INFO - forced to stop CT 3020 before destroying!
+2025-11-26 16:33:28 - services.ssh              - INFO - Running: test -f /var/lib/vz/template/cache/ubuntu-25.04-standard_25.04-1.1_amd64.tar.zst && echo exists || echo missing
+2025-11-26 16:33:28 - services.ssh              - INFO - exists
+2025-11-26 16:33:28 - services.ssh              - INFO - Running: test -f /var/lib/vz/template/cache/ubuntu-25.04-standard_25.04-1.1_amd64.tar.zst && test -r /var/lib/vz/template/cache/ubuntu-25.04-standard_25.04-1.1_amd64.tar.zst && echo 'valid' || echo 'invalid'
+2025-11-26 16:33:28 - services.ssh              - INFO - valid
+2025-11-26 16:33:28 - libs.container_manager    - INFO - Checking if container 3020 already exists...
+2025-11-26 16:33:29 - paramiko.transport        - INFO - Connected (version 2.0, client OpenSSH_9.2p1)
+2025-11-26 16:33:29 - paramiko.transport        - INFO - Authentication (publickey) successful!
+2025-11-26 16:33:29 - services.ssh              - INFO - SSH connection established to root@10.11.3.4
+2025-11-26 16:33:29 - services.ssh              - INFO - Running: pct list | grep '^3020 '
+2025-11-26 16:33:30 - libs.container_manager    - INFO - Creating container 3020 from template...
+2025-11-26 16:33:30 - services.ssh              - INFO - Running: pct create 3020 /var/lib/vz/template/cache/ubuntu-25.04-standard_25.04-1.1_amd64.tar.zst --hostname apt-cache --memory 2048 --swap 2048 --cores 4 --net0 name=eth0,bridge=vmbr0,firewall=0,gw=10.11.3.253,ip=10.11.3.20/24,ip6=dhcp,type=veth --rootfs sdb:20 --unprivileged 1 --ostype ubuntu --arch amd64
+2025-11-26 16:33:38 - services.ssh              - INFO - Formatting '/mnt/pve/sdb/images/3020/vm-3020-disk-0.raw', fmt=raw size=21474836480 preallocation=off
+Creating filesystem with 5242880 4k blocks and 1310720 inodes
+Filesystem UUID: 8197e3f3-83b3-4a2b-ac5c-b37c0bea8cff
+Superblock backups stored on blocks: 
+	32768, 98304, 163840, 229376, 294912, 819200, 884736, 1605632, 2654208, 
+extracting archive '/var/lib/vz/template/cache/ubuntu-25.04-standard_25.04-1.1_amd64.tar.zst'
+Total bytes read: 590848000 (564MiB, 198MiB/s)
+Creating SSH host key 'ssh_host_ecdsa_key' - this may take some time ...
+done: SHA256:5Z0pcFnI1KuC9jWBMov2ydJLVvyBQkgWagK7g9dynnI root@apt-cache
+Creating SSH host key 'ssh_host_rsa_key' - this may take some time ...
+done: SHA256:7CxfEZE03DkVucwIc7AnRFkRQE4ZA9v8J56GqOMgers root@apt-cache
+Creating SSH host key 'ssh_host_ed25519_key' - this may take some time ...
+done: SHA256:RjLiqul+Y5EhoyK9Bw7BHLUNrt7EjHid+tyvQlnIAVg root@apt-cache
+Creating SSH host key 'ssh_host_dsa_key' - this may take some time ...
+done: SHA256:dH9bU/TPExvFYHlc7gyTOdPEVxje7mwryZ8xCDdGxVw root@apt-cache
+2025-11-26 16:33:38 - libs.container_manager    - INFO - Setting container features...
+2025-11-26 16:33:38 - services.ssh              - INFO - Running: pct set 3020 --features nesting=1,keyctl=1,fuse=1
+2025-11-26 16:33:39 - libs.container_manager    - INFO - Starting container 3020...
+2025-11-26 16:33:39 - services.ssh              - INFO - Running: pct start 3020

@@ -58,10 +58,16 @@ class Container:
             base_template = template_service.get_base_template(self.cfg)
             template_path = f"{self.cfg.proxmox_template_dir}/{base_template}"
             logger.warning("Falling back to base template: %s", template_path)
-        # Destroy existing container if it exists
-        from libs.container import destroy_container
+        # Check if container already exists
+        from libs.container import container_exists, destroy_container
         logger.info("Checking if container %s already exists...", container_id)
-        destroy_container(proxmox_host, container_id, cfg=self.cfg, lxc_service=self.lxc_service)
+        container_already_exists = container_exists(proxmox_host, container_id, cfg=self.cfg)
+        # Only destroy and recreate if:
+        # 1. Container doesn't exist, OR
+        # 2. We're starting from step 1 (full creation)
+        if not container_already_exists or (self.plan and self.plan.start_step == 1):
+            if container_already_exists:
+                destroy_container(proxmox_host, container_id, cfg=self.cfg, lxc_service=self.lxc_service)
         # Get container resources
         resources = self.container_cfg.resources
         if not resources:
@@ -74,34 +80,72 @@ class Container:
             self.container_cfg.type not in ("swarm-manager", "swarm-node")
             and not is_docker_template
         )
-        # Create container
-        logger.info("Creating container %s from template...", container_id)
-        output, exit_code = self.pct_service.create(
-            container_id=container_id,
-            template_path=template_path,
-            hostname=hostname,
-            memory=resources.memory,
-            swap=resources.swap,
-            cores=resources.cores,
-            ip_address=ip_address,
-            gateway=gateway,
-            bridge=self.cfg.proxmox_bridge,
-            storage=self.cfg.proxmox_storage,
-            rootfs_size=resources.rootfs_size,
-            unprivileged=unprivileged,
-            ostype="ubuntu",
-            arch="amd64",
-        )
-        if exit_code is not None and exit_code != 0:
-            current_step = self.plan.current_action_step if self.plan else 0
-            logger.error("=" * 50)
-            logger.error("Container Creation Failed")
-            logger.error("=" * 50)
-            logger.error("Container: %s", self.container_cfg.name)
-            logger.error("Step: %d", current_step)
-            logger.error("Error: Failed to create container %s: %s", container_id, output)
-            logger.error("=" * 50)
-            return False
+        # Create container only if it doesn't exist or we're starting from step 1
+        if not container_already_exists or (self.plan and self.plan.start_step == 1):
+            logger.info("Creating container %s from template...", container_id)
+            output, exit_code = self.pct_service.create(
+                container_id=container_id,
+                template_path=template_path,
+                hostname=hostname,
+                memory=resources.memory,
+                swap=resources.swap,
+                cores=resources.cores,
+                ip_address=ip_address,
+                gateway=gateway,
+                bridge=self.cfg.proxmox_bridge,
+                storage=self.cfg.proxmox_storage,
+                rootfs_size=resources.rootfs_size,
+                unprivileged=unprivileged,
+                ostype="ubuntu",
+                arch="amd64",
+            )
+            if exit_code is not None and exit_code != 0:
+                current_step = self.plan.current_action_step if self.plan else 0
+                logger.error("=" * 50)
+                logger.error("Container Creation Failed")
+                logger.error("=" * 50)
+                logger.error("Container: %s", self.container_cfg.name)
+                logger.error("Step: %d", current_step)
+                logger.error("Error: Failed to create container %s: %s", container_id, output)
+                logger.error("=" * 50)
+                return False
+        else:
+            logger.info("Container %s already exists, skipping creation", container_id)
+            # Verify container is running
+            status_cmd = f"pct status {container_id}"
+            status_output, _ = self.ssh_service.execute(status_cmd)
+            if "running" not in status_output:
+                logger.info("Starting existing container %s...", container_id)
+                start_cmd = f"pct start {container_id}"
+                self.ssh_service.execute(start_cmd)
+                import time
+                time.sleep(3)
+            # Set container_id for later use
+            self.container_id = container_id
+            # Connect to container via SSH for actions
+            from services.ssh import SSHConfig
+            default_user = self.cfg.users.default_user
+            container_ssh_config = SSHConfig(
+                connect_timeout=self.cfg.ssh.connect_timeout,
+                batch_mode=self.cfg.ssh.batch_mode,
+                default_exec_timeout=self.cfg.ssh.default_exec_timeout,
+                read_buffer_size=self.cfg.ssh.read_buffer_size,
+                poll_interval=self.cfg.ssh.poll_interval,
+                default_username=default_user,
+                look_for_keys=self.cfg.ssh.look_for_keys,
+                allow_agent=self.cfg.ssh.allow_agent,
+                verbose=self.cfg.ssh.verbose,
+            )
+            self.ssh_service = SSHService(ip_address, container_ssh_config)
+            if not self.ssh_service.connect():
+                logger.error("Failed to connect to container %s at %s", container_id, ip_address)
+                return False
+            # Wait a moment for SSH to be ready
+            import time
+            time.sleep(2)
+            # Skip to actions - container is already set up
+            logger.info("Container %s is ready, proceeding to actions", container_id)
+            return True
         # Set container features BEFORE starting (nesting required for systemd-networkd in unprivileged containers)
         logger.info("Setting container features...")
         output, exit_code = self.pct_service.set_features(container_id, nesting=True, keyctl=True, fuse=True)
@@ -194,9 +238,40 @@ class Container:
                           self.container_cfg.name, self.plan.current_action_step, self.plan.start_step)
                 return True
             # Check if we should stop (after end_step)
-            if self.plan.end_step and self.plan.current_action_step > self.plan.end_step:
+            if self.plan.end_step is not None and self.plan.current_action_step > self.plan.end_step:
                 logger.info("Reached end step %d, stopping container creation", self.plan.end_step)
                 return True
+            # If start_step > 1 and container exists, skip creation and go straight to actions
+            if self.plan.start_step > 1:
+                from libs.container import container_exists
+                container_id = str(self.container_cfg.id)
+                proxmox_host = self.cfg.proxmox_host
+                if container_exists(proxmox_host, container_id, cfg=self.cfg):
+                    logger.info("Container '%s' already exists and start_step is %d, skipping creation and proceeding to actions", 
+                              self.container_cfg.name, self.plan.start_step)
+                    # Still need to setup SSH connection for actions
+                    self.container_id = container_id
+                    ip_address = self.container_cfg.ip_address
+                    from services.ssh import SSHConfig
+                    default_user = self.cfg.users.default_user
+                    container_ssh_config = SSHConfig(
+                        connect_timeout=self.cfg.ssh.connect_timeout,
+                        batch_mode=self.cfg.ssh.batch_mode,
+                        default_exec_timeout=self.cfg.ssh.default_exec_timeout,
+                        read_buffer_size=self.cfg.ssh.read_buffer_size,
+                        poll_interval=self.cfg.ssh.poll_interval,
+                        default_username=default_user,
+                        look_for_keys=self.cfg.ssh.look_for_keys,
+                        allow_agent=self.cfg.ssh.allow_agent,
+                        verbose=self.cfg.ssh.verbose,
+                    )
+                    self.ssh_service = SSHService(ip_address, container_ssh_config)
+                    if not self.ssh_service.connect():
+                        logger.error("Failed to connect to container %s at %s", container_id, ip_address)
+                        return False
+                    time.sleep(2)
+                    # Proceed to actions
+                    return True
             # Log container creation start
             overall_pct = int((self.plan.current_action_step / self.plan.total_steps) * 100)
             logger.info("=" * 50)
@@ -274,7 +349,7 @@ class Container:
                 if self.plan and self.plan.current_action_step < self.plan.start_step:
                     continue
                 # Check if we should stop (after end_step)
-                if self.plan and self.plan.current_action_step > self.plan.end_step:
+                if self.plan and self.plan.end_step is not None and self.plan.current_action_step > self.plan.end_step:
                     logger.info("Reached end step %d, stopping action execution", self.plan.end_step)
                     return True
                 # Calculate percentages

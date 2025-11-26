@@ -1,0 +1,30 @@
+2025-11-26 11:02:11 - commands.cleanup          - INFO - ==================================================
+2025-11-26 11:02:11 - commands.cleanup          - INFO - Cleaning Up Lab Environment
+2025-11-26 11:02:11 - commands.cleanup          - INFO - ==================================================
+2025-11-26 11:02:11 - commands.cleanup          - INFO - Destroying ALL containers and templates...
+2025-11-26 11:02:11 - paramiko.transport        - INFO - Connected (version 2.0, client OpenSSH_9.2p1)
+2025-11-26 11:02:11 - paramiko.transport        - INFO - Authentication (publickey) successful!
+2025-11-26 11:02:11 - services.ssh              - INFO - SSH connection established to root@10.11.3.4
+2025-11-26 11:02:11 - commands.cleanup          - INFO - Stopping and destroying containers...
+2025-11-26 11:02:11 - services.ssh              - INFO - Running: pct list 2>&1
+2025-11-26 11:02:13 - services.ssh              - INFO - VMID       Status     Lock         Name                
+3020       running                 apt-cache
+2025-11-26 11:02:13 - commands.cleanup          - INFO - Found 1 containers to destroy: 3020
+2025-11-26 11:02:13 - commands.cleanup          - INFO - [1/1] Processing container 3020...
+2025-11-26 11:02:13 - services.ssh              - INFO - Running: pct list | grep '^3020 ' || echo 'not_found'
+2025-11-26 11:02:14 - services.ssh              - INFO - 3020       running                 apt-cache
+2025-11-26 11:02:14 - libs.common               - INFO - Stopping and destroying container 3020...
+2025-11-26 11:02:14 - services.ssh              - INFO - Running: pct stop 3020 2>/dev/null || true; sleep 2; pct destroy 3020 2>&1
+2025-11-26 11:02:21 - services.ssh              - INFO - Running: pct list | grep '^3020 ' || echo 'not_found'
+2025-11-26 11:02:22 - services.ssh              - INFO - not_found
+2025-11-26 11:02:22 - libs.common               - INFO - Container 3020 destroyed
+2025-11-26 11:02:22 - commands.cleanup          - INFO - Verifying all containers are destroyed...
+2025-11-26 11:02:22 - services.ssh              - INFO - Running: pct list 2>&1
+2025-11-26 11:02:23 - commands.cleanup          - INFO - All containers destroyed
+2025-11-26 11:02:23 - commands.cleanup          - INFO - Removing templates...
+2025-11-26 11:02:23 - commands.cleanup          - INFO - Cleaning template directory /var/lib/vz/template/cache...
+2025-11-26 11:02:23 - services.ssh              - INFO - Running: find /var/lib/vz/template/cache -maxdepth 1 -type f -name '*.tar.zst' -print | wc -l
+2025-11-26 11:02:23 - services.ssh              - INFO - 1
+2025-11-26 11:02:23 - commands.cleanup          - INFO - Removing 1 template files...
+2025-11-26 11:02:23 - services.ssh              - INFO - Running: find /var/lib/vz/template/cache -maxdepth 1 -type f -name '*.tar.zst' -delete || true
+2025-11-26 11:02:23 - commands.cleanup          - INFO - Templates removed

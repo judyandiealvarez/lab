@@ -341,6 +341,7 @@ class PCTService:
             default_username=cfg.ssh.default_username,
             look_for_keys=cfg.ssh.look_for_keys,
             allow_agent=cfg.ssh.allow_agent,
+            verbose=cfg.ssh.verbose if hasattr(cfg.ssh, "verbose") else False,
         )
         test_ssh = SSHService(test_host, verify_ssh_config)
         logger.info("Testing SSH connection to %s...", test_host)

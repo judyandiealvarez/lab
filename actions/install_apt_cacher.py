@@ -16,8 +16,23 @@ class InstallAptCacherAction(Action):
             logger.error("Services not initialized")
             return False
         logger.info("Installing apt-cacher-ng package...")
-        install_cmd = Apt().install(["apt-cacher-ng"])
-        output = self.apt_service.execute(install_cmd)
+        # Pre-configure debconf to prevent interactive prompts
+        debconf_selections = (
+            "apt-cacher-ng apt-cacher-ng/tunnelenable boolean false\n"
+            "apt-cacher-ng apt-cacher-ng/bindaddress string 0.0.0.0\n"
+        )
+        debconf_cmd = f"echo '{debconf_selections}' | debconf-set-selections"
+        debconf_output, debconf_exit = self.ssh_service.execute(debconf_cmd, sudo=True)
+        if debconf_exit != 0:
+            logger.warning("Failed to set debconf selections: %s", debconf_output)
+        # Disable preconfiguration entirely and use dpkg options to prevent prompts
+        dpkg_options = {
+            "Dpkg::Options::": "--force-confdef --force-confold",
+            "DPkg::Pre-Install-Pkgs": "",
+        }
+        # Use apt-get instead of apt for better non-interactive support
+        install_cmd = Apt().use_apt_get().options(dpkg_options).install(["apt-cacher-ng"])
+        output = self.apt_service.execute(f"DEBIAN_PRIORITY=critical DEBIAN_FRONTEND=noninteractive {install_cmd} < /dev/null")
         if output is None:
             logger.error("apt-cacher-ng installation failed")
             # Verify if package was actually installed despite error
