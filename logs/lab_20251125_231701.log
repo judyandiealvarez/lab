@@ -1,8 +1,0 @@
-2025-11-25 23:17:01 - __main__ - ERROR - Error loading configuration: LabConfig.from_dict() got an unexpected keyword argument 'verbose'
-2025-11-25 23:17:01 - __main__ - ERROR - Traceback (most recent call last):
-  File "/Users/shadowchamber/Projects/lab/./lab.py", line 104, in cmd_cleanup
-    cfg = get_config()
-  File "/Users/shadowchamber/Projects/lab/./lab.py", line 47, in get_config
-    config = LabConfig.from_dict(config_dict, verbose=VERBOSE_FLAG)
-TypeError: LabConfig.from_dict() got an unexpected keyword argument 'verbose'
-
