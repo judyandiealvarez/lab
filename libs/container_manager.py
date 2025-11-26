@@ -325,6 +325,9 @@ class Container:
                         cfg=self.cfg,
                         container_cfg=self.container_cfg,
                     )
+                    # Pass plan to action if available
+                    if self.plan and hasattr(action, "plan"):
+                        action.plan = self.plan
                     actions.append(action)
                 except ValueError as e:
                     current_step = self.plan.current_action_step if self.plan else 0

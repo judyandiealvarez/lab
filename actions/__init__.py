@@ -35,6 +35,9 @@ from .install_base_tools import InstallBaseToolsAction
 from .template_cleanup import TemplateCleanupAction
 from .create_template_archive import CreateTemplateArchiveAction
 from .wait_apt_cache_ready import WaitAptCacheReadyAction
+from .create_container import CreateContainerAction
+from .create_template import CreateTemplateAction
+from .setup_swarm import SetupSwarmAction
 
 __all__ = [
     "Action",
@@ -71,5 +74,8 @@ __all__ = [
     "TemplateCleanupAction",
     "CreateTemplateArchiveAction",
     "WaitAptCacheReadyAction",
+    "CreateContainerAction",
+    "CreateTemplateAction",
+    "SetupSwarmAction",
 ]
 

@@ -41,6 +41,8 @@ templates:
     actions:
       - Docker installation
       - Docker service start
+      - template cleanup
+      - template archive creation
 
 
 ct:

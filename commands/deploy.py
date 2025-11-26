@@ -19,63 +19,6 @@ class DeployError(RuntimeError):
     """Raised when deployment fails."""
 
 
-def _log_deploy_plan(plan: Deploy):
-    """Log a numbered list of all deployment steps, marking which will run."""
-    steps: list[tuple[int, str]] = []
-    step_num = 1
-
-    # Apt-cache container (first, if present)
-    if plan.apt_cache_container:
-        c = plan.apt_cache_container
-        steps.append((step_num, f"{c.name}: create container"))
-        step_num += 1
-        for action in (getattr(c, "actions", None) or []):
-            steps.append((step_num, f"{c.name}: {action}"))
-            step_num += 1
-
-    # Templates
-    for tmpl in plan.templates:
-        steps.append((step_num, f"{tmpl.name}: create template"))
-        step_num += 1
-        for action in (getattr(tmpl, "actions", None) or []):
-            steps.append((step_num, f"{tmpl.name}: {action}"))
-            step_num += 1
-
-    # Non-swarm containers
-    for c in plan.non_swarm_containers:
-        steps.append((step_num, f"{c.name}: create container"))
-        step_num += 1
-        for action in (getattr(c, "actions", None) or []):
-            steps.append((step_num, f"{c.name}: {action}"))
-            step_num += 1
-
-    # Swarm containers (managers + workers)
-    containers = plan.cfg.containers
-    swarm_containers = [c for c in containers if c.type in ("swarm-manager", "swarm-node")]
-    for c in swarm_containers:
-        steps.append((step_num, f"{c.name}: create container"))
-        step_num += 1
-        for action in (getattr(c, "actions", None) or []):
-            steps.append((step_num, f"{c.name}: {action}"))
-            step_num += 1
-
-    logger.info("")
-    end_step_display = plan.end_step if plan.end_step is not None else plan.total_steps
-    logger.info(
-        "Deploy plan (total %d steps, running %d-%d):",
-        plan.total_steps,
-        plan.start_step,
-        end_step_display,
-    )
-    for num, label in steps:
-        end_step = plan.end_step if plan.end_step is not None else plan.total_steps
-        if plan.start_step <= num <= end_step:
-            marker = "RUN"
-        else:
-            marker = "skip"
-        logger.info("  [%2d] %-4s %s", num, marker, label)
-
-
 @dataclass
 class Deploy(Command):
     """Holds deployment sequencing information."""
@@ -105,12 +48,269 @@ class Deploy(Command):
             sys.exit(1)
 
     def _run_deploy(self):
+        """Build action list from config and execute them"""
+        plan = self._build_plan()
+        
+        # Report the plan first
+        self._log_deploy_plan()
+        
+        # Execute actions per container (so services are available)
+        logger.info("=" * 50)
+        logger.info("Executing Deployment")
+        logger.info("=" * 50)
+        
+        # 1. Apt-cache container: create container + its actions
+        if plan.apt_cache_container:
+            self._execute_container_actions(plan, plan.apt_cache_container, "apt-cache")
+            if plan.end_step is not None and plan.current_action_step >= plan.end_step:
+                logger.info("Reached end step %d, stopping deployment", plan.end_step)
+                failed_ports = self._check_service_ports() if plan.end_step == plan.total_steps else []
+                _log_deploy_summary(self.cfg, failed_ports)
+                if failed_ports:
+                    error_msg = "Deploy failed: The following ports are not responding:\n"
+                    for name, ip, port in failed_ports:
+                        error_msg += f"  - {name}: {ip}:{port}\n"
+                    raise DeployError(error_msg)
+                return
+        
+        # 2. Templates: create container + template's actions
+        for template_cfg in plan.templates:
+            self._execute_container_actions(plan, template_cfg, template_cfg.name)
+            if plan.end_step is not None and plan.current_action_step >= plan.end_step:
+                logger.info("Reached end step %d, stopping deployment", plan.end_step)
+                failed_ports = self._check_service_ports() if plan.end_step == plan.total_steps else []
+                _log_deploy_summary(self.cfg, failed_ports)
+                if failed_ports:
+                    error_msg = "Deploy failed: The following ports are not responding:\n"
+                    for name, ip, port in failed_ports:
+                        error_msg += f"  - {name}: {ip}:{port}\n"
+                    raise DeployError(error_msg)
+                return
+        
+        # 3. Containers: create container + container's actions
+        for container_cfg in plan.non_swarm_containers:
+            self._execute_container_actions(plan, container_cfg, container_cfg.name)
+            if plan.end_step is not None and plan.current_action_step >= plan.end_step:
+                logger.info("Reached end step %d, stopping deployment", plan.end_step)
+                failed_ports = self._check_service_ports() if plan.end_step == plan.total_steps else []
+                _log_deploy_summary(self.cfg, failed_ports)
+                if failed_ports:
+                    error_msg = "Deploy failed: The following ports are not responding:\n"
+                    for name, ip, port in failed_ports:
+                        error_msg += f"  - {name}: {ip}:{port}\n"
+                    raise DeployError(error_msg)
+                return
+        
+        # 4. Swarm containers: create container + container's actions
+        containers = self.cfg.containers
+        swarm_containers = [c for c in containers if c.type in ("swarm-manager", "swarm-node")]
+        for container_cfg in swarm_containers:
+            self._execute_container_actions(plan, container_cfg, container_cfg.name)
+            if plan.end_step is not None and plan.current_action_step >= plan.end_step:
+                logger.info("Reached end step %d, stopping deployment", plan.end_step)
+                failed_ports = self._check_service_ports() if plan.end_step == plan.total_steps else []
+                _log_deploy_summary(self.cfg, failed_ports)
+                if failed_ports:
+                    error_msg = "Deploy failed: The following ports are not responding:\n"
+                    for name, ip, port in failed_ports:
+                        error_msg += f"  - {name}: {ip}:{port}\n"
+                    raise DeployError(error_msg)
+                return
+        
+        # 5. Setup swarm action if we have swarm containers
+        if swarm_containers:
+            from actions.setup_swarm import SetupSwarmAction
+            if plan:
+                plan.current_action_step += 1
+                if plan.current_action_step < plan.start_step:
+                    logger.info("Skipping setup swarm (step %d < start_step %d)", 
+                              plan.current_action_step, plan.start_step)
+                elif plan.end_step is not None and plan.current_action_step > plan.end_step:
+                    logger.info("Reached end step %d, stopping deployment", plan.end_step)
+                else:
+                    overall_pct = int((plan.current_action_step / plan.total_steps) * 100)
+                    logger.info("=" * 50)
+                    logger.info("[Overall: %d%%] [Step: %d/%d] Executing: swarm - setup swarm", 
+                              overall_pct, plan.current_action_step, plan.total_steps)
+                    logger.info("=" * 50)
+                    setup_swarm_action = SetupSwarmAction(
+                        ssh_service=None,
+                        apt_service=None,
+                        pct_service=None,
+                        container_id=None,
+                        cfg=self.cfg,
+                        container_cfg=None,
+                    )
+                    setup_swarm_action.plan = plan
+                    if not setup_swarm_action.execute():
+                        raise DeployError("Failed to execute setup swarm action")
+            
+            # Check if we should stop after swarm
+            if plan and plan.end_step is not None and plan.current_action_step >= plan.end_step:
+                logger.info("Reached end step %d, stopping deployment", plan.end_step)
+                failed_ports = self._check_service_ports() if plan.end_step == plan.total_steps else []
+                _log_deploy_summary(self.cfg, failed_ports)
+                if failed_ports:
+                    error_msg = "Deploy failed: The following ports are not responding:\n"
+                    for name, ip, port in failed_ports:
+                        error_msg += f"  - {name}: {ip}:{port}\n"
+                    raise DeployError(error_msg)
+                return
+        
+        # 6. Setup GlusterFS if configured
+        if self.cfg.glusterfs and swarm_containers:
+            if plan:
+                plan.current_action_step += 1
+                if plan.current_action_step < plan.start_step:
+                    logger.info("Skipping GlusterFS setup (step %d < start_step %d)", 
+                              plan.current_action_step, plan.start_step)
+                elif plan.end_step is not None and plan.current_action_step > plan.end_step:
+                    logger.info("Reached end step %d, stopping deployment", plan.end_step)
+                else:
+                    overall_pct = int((plan.current_action_step / plan.total_steps) * 100)
+                    logger.info("=" * 50)
+                    logger.info("[Overall: %d%%] [Step: %d/%d] Executing: GlusterFS setup", 
+                              overall_pct, plan.current_action_step, plan.total_steps)
+                    logger.info("=" * 50)
+                    if not setup_glusterfs(self.cfg):
+                        raise DeployError("GlusterFS setup failed")
+        
+        # Check service ports
+        failed_ports = self._check_service_ports()
+        _log_deploy_summary(self.cfg, failed_ports)
+        if failed_ports:
+            error_msg = "Deploy failed: The following ports are not responding:\n"
+            for name, ip, port in failed_ports:
+                error_msg += f"  - {name}: {ip}:{port}\n"
+            raise DeployError(error_msg)
+    
+    def _execute_container_actions(self, plan: "Deploy", container_cfg, container_name: str):
+        """Execute create container action, then set up services and execute container's actions"""
+        from actions.create_container import CreateContainerAction
+        from actions.registry import get_action_class
+        from services.ssh import SSHService
+        from services.apt import APTService
+        from services.lxc import LXCService
+        from services.pct import PCTService
+        from libs.config import SSHConfig
+        import time
+        
+        # 1. Execute create container action
+        if plan:
+            plan.current_action_step += 1
+            if plan.current_action_step < plan.start_step:
+                logger.info("Skipping container '%s' creation (step %d < start_step %d)", 
+                          container_name, plan.current_action_step, plan.start_step)
+                return
+            if plan.end_step is not None and plan.current_action_step > plan.end_step:
+                logger.info("Reached end step %d, stopping deployment", plan.end_step)
+                return
+            overall_pct = int((plan.current_action_step / plan.total_steps) * 100)
+            logger.info("=" * 50)
+            logger.info("[Overall: %d%%] [Step: %d/%d] Executing: %s - create container", 
+                      overall_pct, plan.current_action_step, plan.total_steps, container_name)
+            logger.info("=" * 50)
+        
+        create_action = CreateContainerAction(
+            ssh_service=None,
+            apt_service=None,
+            pct_service=None,
+            container_id=None,
+            cfg=self.cfg,
+            container_cfg=container_cfg,
+        )
+        create_action.plan = plan
+        
+        try:
+            if not create_action.execute():
+                raise DeployError(f"Failed to create container: {container_name}")
+            logger.info("Container '%s' created successfully", container_name)
+        except Exception as exc:
+            logger.error("Failed to create container '%s': %s", container_name, exc)
+            raise DeployError(f"Failed to create container '{container_name}': {exc}")
+        
+        # 2. Set up SSH service for this container
+        container_id = str(container_cfg.id)
+        ip_address = container_cfg.ip_address
+        default_user = self.cfg.users.default_user
+        
+        logger.info("Setting up SSH connection to container %s...", container_name)
+        container_ssh_config = SSHConfig(
+            connect_timeout=self.cfg.ssh.connect_timeout,
+            batch_mode=self.cfg.ssh.batch_mode,
+            default_exec_timeout=self.cfg.ssh.default_exec_timeout,
+            read_buffer_size=self.cfg.ssh.read_buffer_size,
+            poll_interval=self.cfg.ssh.poll_interval,
+            default_username=default_user,
+            look_for_keys=self.cfg.ssh.look_for_keys,
+            allow_agent=self.cfg.ssh.allow_agent,
+            verbose=self.cfg.ssh.verbose,
+        )
+        ssh_service = SSHService(f"{default_user}@{ip_address}", container_ssh_config)
+        if not ssh_service.connect():
+            raise DeployError(f"Failed to connect to container {container_name} via SSH")
+        
+        # Wait a moment for SSH to be fully ready
+        time.sleep(2)
+        
+        # 3. Set up APT service
+        apt_service = APTService(ssh_service)
+        
+        # 4. Set up LXC and PCT services
+        lxc_service = LXCService(self.cfg.proxmox_host, self.cfg.ssh)
+        if not lxc_service.connect():
+            ssh_service.disconnect()
+            raise DeployError(f"Failed to connect to Proxmox host {self.cfg.proxmox_host}")
+        pct_service = PCTService(lxc_service)
+        
+        try:
+            # 5. Execute container's actions with services
+            action_names = container_cfg.actions if container_cfg.actions else []
+            for action_name in action_names:
+                if plan:
+                    plan.current_action_step += 1
+                    if plan.current_action_step < plan.start_step:
+                        continue
+                    if plan.end_step is not None and plan.current_action_step > plan.end_step:
+                        logger.info("Reached end step %d, stopping action execution", plan.end_step)
+                        return
+                    overall_pct = int((plan.current_action_step / plan.total_steps) * 100)
+                    logger.info("=" * 50)
+                    logger.info("[Overall: %d%%] [Step: %d/%d] Executing: %s - %s", 
+                              overall_pct, plan.current_action_step, plan.total_steps, container_name, action_name)
+                    logger.info("=" * 50)
+                
+                action_class = get_action_class(action_name)
+                action = action_class(
+                    ssh_service=ssh_service,
+                    apt_service=apt_service,
+                    pct_service=pct_service,
+                    container_id=container_id,
+                    cfg=self.cfg,
+                    container_cfg=container_cfg,
+                )
+                action.plan = plan
+                
+                try:
+                    if not action.execute():
+                        raise DeployError(f"Failed to execute action '{action_name}' for container '{container_name}'")
+                    logger.info("Action '%s' for container '%s' completed successfully", action_name, container_name)
+                except Exception as exc:
+                    logger.error("Exception executing action '%s' for container '%s': %s", action_name, container_name, exc)
+                    logger.error("Exception details:", exc_info=True)
+                    raise DeployError(f"Exception executing action '{action_name}' for container '{container_name}': {exc}")
+        finally:
+            # Clean up services
+            ssh_service.disconnect()
+            lxc_service.disconnect()
+
+    def _run_deploy2(self):
         """Execute the full deployment workflow."""
         logger.info("=" * 50)
         logger.info("Deploying Lab Environment")
         logger.info("=" * 50)
         plan = self._build_plan()
-        _log_deploy_plan(plan)
+        self._log_deploy_plan()
 
         # 1) Apt-cache container (first stage)
         if plan.apt_cache_container:
@@ -191,6 +391,62 @@ class Deploy(Command):
         """Count actions for a container."""
         return len(container_cfg.actions) if container_cfg.actions else 0
 
+    def _log_deploy_plan(self):
+        """Log a numbered list of all deployment steps, marking which will run."""
+        steps: list[tuple[int, str]] = []
+        step_num = 1
+
+        # Apt-cache container (first, if present)
+        if self.apt_cache_container:
+            c = self.apt_cache_container
+            steps.append((step_num, f"{c.name}: create container"))
+            step_num += 1
+            for action in (getattr(c, "actions", None) or []):
+                steps.append((step_num, f"{c.name}: {action}"))
+                step_num += 1
+
+        # Templates
+        for tmpl in self.templates:
+            steps.append((step_num, f"{tmpl.name}: create template"))
+            step_num += 1
+            for action in (getattr(tmpl, "actions", None) or []):
+                steps.append((step_num, f"{tmpl.name}: {action}"))
+                step_num += 1
+
+        # Non-swarm containers
+        for c in self.non_swarm_containers:
+            steps.append((step_num, f"{c.name}: create container"))
+            step_num += 1
+            for action in (getattr(c, "actions", None) or []):
+                steps.append((step_num, f"{c.name}: {action}"))
+                step_num += 1
+
+        # Swarm containers (managers + workers)
+        containers = self.cfg.containers
+        swarm_containers = [c for c in containers if c.type in ("swarm-manager", "swarm-node")]
+        for c in swarm_containers:
+            steps.append((step_num, f"{c.name}: create container"))
+            step_num += 1
+            for action in (getattr(c, "actions", None) or []):
+                steps.append((step_num, f"{c.name}: {action}"))
+                step_num += 1
+
+        logger.info("")
+        end_step_display = self.end_step if self.end_step is not None else self.total_steps
+        logger.info(
+            "Deploy plan (total %d steps, running %d-%d):",
+            self.total_steps,
+            self.start_step,
+            end_step_display,
+        )
+        for num, label in steps:
+            end_step = self.end_step if self.end_step is not None else self.total_steps
+            if self.start_step <= num <= end_step:
+                marker = "RUN"
+            else:
+                marker = "skip"
+            logger.info("  [%2d] %-4s %s", num, marker, label)
+
     def _build_plan(self) -> "Deploy":
         cfg = self.cfg
         start_step = self.start_step
@@ -217,6 +473,12 @@ class Deploy(Command):
         for container in swarm_containers:
             total_steps += 1  # Container creation step
             total_steps += self._count_actions(container)
+        # Add swarm setup step if we have swarm containers
+        if swarm_containers:
+            total_steps += 1  # Swarm setup step
+        # Add GlusterFS setup step if configured
+        if cfg.glusterfs and swarm_containers:
+            total_steps += 1  # GlusterFS setup step
         if not apt_cache_container:
             raise DeployError(f"apt-cache container '{cfg.apt_cache_ct}' not found in configuration")
         if end_step is None:
