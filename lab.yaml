@@ -10,7 +10,6 @@ templates:
     id: 3010
     ip: 10  # Last octet only
     hostname: "ubuntu-tmpl"
-    type: ubuntu
     template: base
     resources:
       memory: 2048
@@ -31,8 +30,9 @@ templates:
     id: 3008
     ip: 8  # Last octet only
     hostname: "docker-tmpl"
-    type: ubuntu+docker
     template: ubuntu-tmpl
+    privileged: true
+    nested: true
     resources:
       memory: 4096
       swap: 4096
@@ -50,7 +50,6 @@ ct:
     id: 3020
     ip: 20  # Last octet only
     hostname: "apt-cache"
-    type: apt-cache
     template: ubuntu-tmpl
     resources:
       memory: 2048
@@ -69,7 +68,6 @@ ct:
     id: 3018
     ip: 18  # Last octet only
     hostname: "pgsql"
-    type: pgsql
     template: ubuntu-tmpl
     resources:
       memory: 2048
@@ -90,7 +88,6 @@ ct:
     id: 3017
     ip: 17  # Last octet only
     hostname: "haproxy"
-    type: haproxy
     template: ubuntu-tmpl
     resources:
       memory: 1024
@@ -111,8 +108,9 @@ ct:
     id: 3019
     ip: 19  # Last octet only
     hostname: "dns"
-    type: dns
     template: docker-tmpl
+    privileged: true
+    nested: true
     resources:
       memory: 2048
       swap: 2048
@@ -137,8 +135,9 @@ ct:
     id: 3005
     ip: 5  # Last octet only
     hostname: "swarm-manager"
-    type: swarm-manager
     template: docker-tmpl
+    privileged: true
+    nested: true
     resources:
       memory: 4096
       swap: 4096
@@ -155,8 +154,9 @@ ct:
     id: 3006
     ip: 6  # Last octet only
     hostname: "swarm-node-1"
-    type: swarm-node
     template: docker-tmpl
+    privileged: true
+    nested: true
     resources:
       memory: 4096
       swap: 4096
@@ -171,8 +171,9 @@ ct:
     id: 3007
     ip: 7  # Last octet only
     hostname: "swarm-node-2"
-    type: swarm-node
     template: docker-tmpl
+    privileged: true
+    nested: true
     resources:
       memory: 4096
       swap: 4096
@@ -183,6 +184,56 @@ ct:
     actions:
       - cloud-init wait
       - docker service start
+  - name: k3s-control
+    id: 3011
+    ip: 11  # Last octet only
+    hostname: "k3s-control"
+    template: ubuntu-tmpl
+    privileged: true
+    nested: true
+    resources:
+      memory: 4096
+      swap: 4096
+      cores: 8
+      rootfs_size: 40
+    params:
+      port: 6443
+    actions:
+      - cloud-init wait
+      - lxc sysctl access configuration
+      - k3s installation
+  - name: k3s-worker-1
+    id: 3012
+    ip: 12  # Last octet only
+    hostname: "k3s-worker-1"
+    template: ubuntu-tmpl
+    privileged: true
+    nested: true
+    resources:
+      memory: 4096
+      swap: 4096
+      cores: 8
+      rootfs_size: 40
+    actions:
+      - cloud-init wait
+      - lxc sysctl access configuration
+      - k3s installation
+  - name: k3s-worker-2
+    id: 3013
+    ip: 13  # Last octet only
+    hostname: "k3s-worker-2"
+    template: ubuntu-tmpl
+    privileged: true
+    nested: true
+    resources:
+      memory: 4096
+      swap: 4096
+      cores: 8
+      rootfs_size: 40
+    actions:
+      - cloud-init wait
+      - lxc sysctl access configuration
+      - k3s installation
 
 swarm:
   managers:
@@ -190,6 +241,13 @@ swarm:
   workers:
     - id: 3006
     - id: 3007
+
+kubernetes:
+  control:
+    - id: 3011
+  workers:
+    - id: 3012
+    - id: 3013
 
 # Script timeouts (in seconds)
 timeouts:
@@ -227,6 +285,11 @@ services:
     http_port: 80
     https_port: 443
     stats_port: 8404
+  rancher:
+    port: 30443
+    image: "rancher/rancher:latest"
+  longhorn:
+    port: 8000
 
 # DNS servers
 dns:

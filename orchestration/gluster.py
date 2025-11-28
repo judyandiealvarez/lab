@@ -75,8 +75,13 @@ def setup_glusterfs(cfg: LabConfig):
 
 def _collect_gluster_nodes(cfg: LabConfig) -> Tuple[Optional[NodeInfo], Sequence[NodeInfo]]:
     """Return manager and worker nodes as NodeInfo objects."""
-    managers = [c for c in cfg.containers if c.type == "swarm-manager"]
-    workers = [c for c in cfg.containers if c.type == "swarm-node"]
+    if not cfg.swarm or not cfg.swarm.managers or not cfg.swarm.workers:
+        logger.error("Swarm configuration not found or incomplete")
+        return None, []
+    manager_ids = set(cfg.swarm.managers)
+    worker_ids = set(cfg.swarm.workers)
+    managers = [c for c in cfg.containers if c.id in manager_ids]
+    workers = [c for c in cfg.containers if c.id in worker_ids]
     if not managers or not workers:
         logger.error("Swarm managers or workers not found")
         return None, []
@@ -86,7 +91,7 @@ def _collect_gluster_nodes(cfg: LabConfig) -> Tuple[Optional[NodeInfo], Sequence
 
 def _get_apt_cache_proxy(cfg: LabConfig):
     """Return apt-cache proxy settings if available."""
-    apt_cache = next((c for c in cfg.containers if c.type == "apt-cache"), None)
+    apt_cache = next((c for c in cfg.containers if c.name == cfg.apt_cache_ct), None)
     if not apt_cache:
         return None, None
     return apt_cache.ip_address, cfg.apt_cache_port

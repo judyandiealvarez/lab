@@ -13,7 +13,7 @@ from commands.status import Status
 from dependency_injector import containers, providers
 from services.lxc import LXCService
 from services.pct import PCTService
-from libs import common, container, template
+from libs import common, template
 from libs.config import LabConfig
 from libs.logger import get_logger, init_logger
 
@@ -57,8 +57,6 @@ wait_for_container = common.wait_for_container
 get_ssh_key = common.get_ssh_key
 setup_ssh_key = common.setup_ssh_key
 get_base_template = template.get_base_template
-get_template_path = container.get_template_path
-setup_container_base = container.setup_container_base
 
 def main():
     """Main CLI entry point"""
@@ -72,6 +70,7 @@ def main():
     deploy_parser = subparsers.add_parser("deploy", help="Deploy complete lab: apt-cache, templates, and Docker Swarm")
     deploy_parser.add_argument("--start-step", type=int, default=1, help="Start from this step (default: 1)")
     deploy_parser.add_argument("--end-step", type=int, default=None, help="End at this step (default: last step)")
+    deploy_parser.add_argument("--planonly", action="store_true", help="Show deployment plan and exit without executing")
 
     cleanup_parser = subparsers.add_parser("cleanup", help="Remove all containers and templates")
 

@@ -43,11 +43,13 @@ class Status(Command):
                 logger.info("  No templates found")
             # Check swarm status (minimal: just manager existence)
             logger.info("Docker Swarm:")
-            manager_configs = [c for c in self.cfg.containers if c.type == "swarm-manager"]
-            if not manager_configs:
+            # Find manager by ID from swarm config
+            manager_id = None
+            if self.cfg.swarm and self.cfg.swarm.managers:
+                manager_id = self.cfg.swarm.managers[0]
+            if not manager_id:
                 logger.info("  No swarm manager found in configuration")
                 return
-            manager_id = manager_configs[0].id
             status_output, _ = self.pct_service.status(str(manager_id))
             if not status_output or str(manager_id) not in status_output:
                 logger.info("  Swarm manager container does not exist")

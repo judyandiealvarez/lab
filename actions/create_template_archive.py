@@ -100,11 +100,10 @@ class CreateTemplateArchiveAction(Action):
             return False
         logger.info("Template archive size: %.2f MB", file_size / 1048576)
         # Rename template and move to storage location (local:vztmpl/)
-        template_type = self.container_cfg.type if self.container_cfg else "ubuntu"
-        logger.info("Template type: %s", template_type)
-        template_pattern = self.cfg.template_config.patterns.get(template_type, "ubuntu-{date}-standard_amd64.tar.zst")
-        logger.info("Template pattern: %s", template_pattern)
-        final_template_name = template_pattern.replace("{date}", datetime.now().strftime("%Y%m%d"))
+        # Use template name directly in filename
+        template_name = self.container_cfg.name if self.container_cfg else "template"
+        date_str = datetime.now().strftime("%Y%m%d")
+        final_template_name = f"{template_name}_{date_str}_amd64.tar.zst"
         logger.info("Final template name: %s", final_template_name)
         # Templates need to be in storage template dir (not cache/) to be visible as local:vztmpl/
         storage_template_dir = self.cfg.proxmox.template_dir
@@ -141,7 +140,7 @@ class CreateTemplateArchiveAction(Action):
         )
         common.ssh_exec(proxmox_host, cleanup_storage_cmd, cfg=self.cfg)
         # Destroy container after archive is created
-        from libs.container import destroy_container
+        from libs.common import destroy_container
         # Use pct_service's lxc service to reuse connection
         lxc_svc = self.pct_service.lxc if self.pct_service else None
         try:

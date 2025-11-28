@@ -10,11 +10,11 @@ class ConfigureAptProxyAction(Action):
 
     def execute(self) -> bool:
         """Configure apt cache proxy"""
-        # Get apt-cache IP from containers
-        apt_cache_containers = [c for c in self.cfg.containers if c.type == "apt-cache"]
-        if not apt_cache_containers:
+        # Get apt-cache IP from containers (find by name)
+        apt_cache_container = next((c for c in self.cfg.containers if c.name == self.cfg.apt_cache_ct), None)
+        if not apt_cache_container:
             return True  # No apt-cache, skip
-        apt_cache_ip = apt_cache_containers[0].ip_address
+        apt_cache_ip = apt_cache_container.ip_address
         apt_cache_port = self.cfg.apt_cache_port
         proxy_content = f'Acquire::http::Proxy "http://{apt_cache_ip}:{apt_cache_port}";\n'
         proxy_cmd = FileOps().write("/etc/apt/apt.conf.d/01proxy", proxy_content)

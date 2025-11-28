@@ -5,7 +5,7 @@ import logging
 import time
 from cli import FileOps, User
 from services import LXCService, PCTService, SSHService, TemplateService
-from libs.container import container_exists, destroy_container
+from libs.common import container_exists, destroy_container
 from .base import Action
 
 logger = logging.getLogger(__name__)
@@ -57,9 +57,46 @@ class CreateContainerAction(Action):
                 template_path = f"{self.cfg.proxmox_template_dir}/{base_template}"
                 logger.warning("Falling back to base template: %s", template_path)
 
+            # Determine if container should be privileged from config (default to False if not specified)
+            should_be_privileged = self.container_cfg.privileged if self.container_cfg.privileged is not None else False
+            should_be_nested = self.container_cfg.nested if self.container_cfg.nested is not None else True
+
             # Check if container already exists
             logger.info("Checking if container %s already exists...", container_id)
             container_already_exists = container_exists(proxmox_host, container_id, cfg=self.cfg)
+
+            # If container exists and we're starting from a later step (not full deploy), check if it needs to be recreated
+            if container_already_exists and self.plan and self.plan.start_step > 1:
+                # Check if container privilege status matches config
+                if should_be_privileged:
+                    config_cmd = f"pct config {container_id} | grep -E '^unprivileged:' || echo 'unprivileged: 1'"
+                    config_output, _ = lxc_service.execute(config_cmd)
+                    is_unprivileged = config_output and "unprivileged: 1" in config_output
+                    if is_unprivileged:
+                        logger.error("Container %s exists but is unprivileged - config requires privileged. Destroying and recreating...", container_id)
+                        destroy_container(proxmox_host, container_id, cfg=self.cfg, lxc_service=lxc_service)
+                        container_already_exists = False
+                    else:
+                        logger.info("Container %s already exists and privilege status matches config, skipping creation", container_id)
+                        # Verify container is running and ready
+                        status_output, _ = pct_service.status(container_id)
+                        if status_output and "running" not in status_output:
+                            logger.info("Starting existing container %s...", container_id)
+                            pct_service.start(container_id)
+                            import time
+                            time.sleep(3)
+                        return True
+                else:
+                    logger.info("Container %s already exists and start_step is %d, skipping creation", 
+                              container_id, self.plan.start_step)
+                    # Verify container is running and ready
+                    status_output, _ = pct_service.status(container_id)
+                    if status_output and "running" not in status_output:
+                        logger.info("Starting existing container %s...", container_id)
+                        pct_service.start(container_id)
+                        import time
+                        time.sleep(3)
+                    return True
 
             if container_already_exists:
                 logger.info("Container %s already exists, destroying it first...", container_id)
@@ -71,12 +108,8 @@ class CreateContainerAction(Action):
                 from libs.config import ContainerResources
                 resources = ContainerResources(memory=2048, swap=2048, cores=4, rootfs_size=20)
 
-            # Determine if container should be privileged
-            is_docker_template = self.container_cfg.template and "docker" in self.container_cfg.template.lower()
-            unprivileged = (
-                self.container_cfg.type not in ("swarm-manager", "swarm-node")
-                and not is_docker_template
-            )
+            # Use the privileged flag from config
+            unprivileged = not should_be_privileged
 
             # Create container
             logger.info("Creating container %s from template...", container_id)
@@ -100,11 +133,28 @@ class CreateContainerAction(Action):
                 logger.error("Failed to create container %s: %s", container_id, output)
                 return False
 
-            # Set container features BEFORE starting
+            # Set container features BEFORE starting (use nested from config)
             logger.info("Setting container features...")
-            output, exit_code = pct_service.set_features(container_id, nesting=True, keyctl=True, fuse=True)
+            output, exit_code = pct_service.set_features(container_id, nesting=should_be_nested, keyctl=True, fuse=True)
             if exit_code is not None and exit_code != 0:
                 logger.warning("Failed to set container features: %s", output)
+
+            # Configure /dev/kmsg mount for k3s containers (required for k3s to work in LXC)
+            # Check if this container needs k3s by checking actions or kubernetes config
+            needs_k3s = False
+            # Check if container has k3s installation action
+            if self.container_cfg and self.container_cfg.actions:
+                if "k3s installation" in self.container_cfg.actions:
+                    needs_k3s = True
+            # Also check kubernetes config as fallback
+            if not needs_k3s and self.cfg and self.cfg.kubernetes:
+                control_ids = self.cfg.kubernetes.control if self.cfg.kubernetes.control else []
+                worker_ids = self.cfg.kubernetes.workers if self.cfg.kubernetes.workers else []
+                if container_id in control_ids or container_id in worker_ids:
+                    needs_k3s = True
+            
+            # Note: /dev/kmsg will be created inside the container after it starts
+            # We'll do this in the k3s installation action instead of here
 
             # Start container
             logger.info("Starting container %s...", container_id)

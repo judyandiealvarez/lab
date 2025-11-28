@@ -505,3 +505,411 @@ class PCTService:
         status_detail, _ = self.execute(container_id, status_detail_cmd)
         logger.error("SSH service status details: %s", status_detail)
         return False
+
+    def create_and_setup_container(self, container_cfg, cfg, plan=None):
+        """
+        Create and setup container with all actions - main entry point for container management
+        Args:
+            container_cfg: ContainerConfig instance
+            cfg: LabConfig instance
+            plan: Optional deployment plan
+        Returns:
+            tuple: (ssh_service, apt_service) if successful, (None, None) if failed
+        """
+        from libs.config import ContainerConfig, LabConfig, ContainerResources
+        from libs.common import container_exists, destroy_container
+        from services import SSHService, APTService, TemplateService
+        from services.ssh import SSHConfig
+        from cli import FileOps, User
+        from actions.registry import get_action_class
+        import shlex
+        
+        container_id = str(container_cfg.id)
+        ip_address = container_cfg.ip_address
+        hostname = container_cfg.hostname
+        gateway = cfg.gateway
+        
+        # Treat container creation as a step
+        if plan:
+            plan.current_action_step += 1
+            # Check if we should skip this step (before start_step)
+            if plan.current_action_step < plan.start_step:
+                logger.info("Skipping container '%s' creation (step %d < start_step %d)", 
+                          container_cfg.name, plan.current_action_step, plan.start_step)
+                # Still need to connect for actions if container exists
+                if container_exists(cfg.proxmox_host, container_id, cfg=cfg):
+                    default_user = cfg.users.default_user
+                    container_ssh_config = SSHConfig(
+                        connect_timeout=cfg.ssh.connect_timeout,
+                        batch_mode=cfg.ssh.batch_mode,
+                        default_exec_timeout=cfg.ssh.default_exec_timeout,
+                        read_buffer_size=cfg.ssh.read_buffer_size,
+                        poll_interval=cfg.ssh.poll_interval,
+                        default_username=default_user,
+                        look_for_keys=cfg.ssh.look_for_keys,
+                        allow_agent=cfg.ssh.allow_agent,
+                        verbose=cfg.ssh.verbose,
+                    )
+                    ssh_service = SSHService(f"{default_user}@{ip_address}", container_ssh_config)
+                    if ssh_service.connect():
+                        apt_service = APTService(ssh_service)
+                        return (ssh_service, apt_service)
+                return (None, None)
+            # Check if we should stop (after end_step)
+            if plan.end_step is not None and plan.current_action_step > plan.end_step:
+                logger.info("Reached end step %d, stopping container creation", plan.end_step)
+                return (None, None)
+            # If start_step > 1 and container exists, skip creation and go straight to actions
+            if plan.start_step > 1:
+                if container_exists(cfg.proxmox_host, container_id, cfg=cfg):
+                    logger.info("Container '%s' already exists and start_step is %d, skipping creation and proceeding to actions", 
+                              container_cfg.name, plan.start_step)
+                    default_user = cfg.users.default_user
+                    container_ssh_config = SSHConfig(
+                        connect_timeout=cfg.ssh.connect_timeout,
+                        batch_mode=cfg.ssh.batch_mode,
+                        default_exec_timeout=cfg.ssh.default_exec_timeout,
+                        read_buffer_size=cfg.ssh.read_buffer_size,
+                        poll_interval=cfg.ssh.poll_interval,
+                        default_username=default_user,
+                        look_for_keys=cfg.ssh.look_for_keys,
+                        allow_agent=cfg.ssh.allow_agent,
+                        verbose=cfg.ssh.verbose,
+                    )
+                    ssh_service = SSHService(f"{default_user}@{ip_address}", container_ssh_config)
+                    if not ssh_service.connect():
+                        logger.error("Failed to connect to container %s at %s", container_id, ip_address)
+                        return (None, None)
+                    time.sleep(2)
+                    apt_service = APTService(ssh_service)
+                    return (ssh_service, apt_service)
+            # Log container creation start
+            overall_pct = int((plan.current_action_step / plan.total_steps) * 100)
+            logger.info("=" * 50)
+            logger.info("[Overall: %d%%] [Container '%s': 0%%] [Step: %d] Starting container creation", 
+                      overall_pct, container_cfg.name, plan.current_action_step)
+            logger.info("=" * 50)
+        
+        # Setup container
+        if not self._setup_container(container_cfg, cfg, plan):
+            return (None, None)
+        
+        # Connect to container via SSH
+        default_user = cfg.users.default_user
+        container_ssh_host = f"{default_user}@{ip_address}"
+        ssh_service = SSHService(container_ssh_host, cfg.ssh)
+        # Wait a moment for SSH service to be fully ready
+        time.sleep(3)
+        # Connect to container
+        if not ssh_service.connect():
+            current_step = plan.current_action_step if plan else 0
+            logger.error("=" * 50)
+            logger.error("SSH Connection Failed")
+            logger.error("=" * 50)
+            logger.error("Container: %s", container_cfg.name)
+            logger.error("Step: %d", current_step)
+            logger.error("Error: Failed to establish SSH connection to container %s", ip_address)
+            logger.error("=" * 50)
+            destroy_container(cfg.proxmox_host, container_id, cfg=cfg, lxc_service=self.lxc)
+            return (None, None)
+        
+        # Create APT service
+        apt_service = APTService(ssh_service)
+        
+        try:
+            # Parse actions from container config
+            action_names = container_cfg.actions if container_cfg.actions else []
+            if not action_names:
+                logger.warning("No actions specified in container config, skipping action execution")
+                return (ssh_service, apt_service)
+            
+            # Build action instances from config
+            actions = []
+            for action_name in action_names:
+                try:
+                    action_class = get_action_class(action_name)
+                    # Create action instance with required services
+                    action = action_class(
+                        ssh_service=ssh_service,
+                        apt_service=apt_service,
+                        pct_service=self,
+                        container_id=container_id,
+                        cfg=cfg,
+                        container_cfg=container_cfg,
+                    )
+                    # Pass plan to action if available
+                    if plan and hasattr(action, "plan"):
+                        action.plan = plan
+                    actions.append(action)
+                except ValueError as e:
+                    current_step = plan.current_action_step if plan else 0
+                    logger.error("=" * 50)
+                    logger.error("Action Creation Failed")
+                    logger.error("=" * 50)
+                    logger.error("Container: %s", container_cfg.name)
+                    logger.error("Step: %d", current_step)
+                    logger.error("Action Name: %s", action_name)
+                    logger.error("Error: %s", e)
+                    logger.error("=" * 50)
+                    return (None, None)
+            
+            # Execute actions
+            logger.info("Executing %d actions for container '%s'", len(actions), container_cfg.name)
+            for idx, action in enumerate(actions, 1):
+                # Increment step counter for this action
+                if plan:
+                    plan.current_action_step += 1
+                # Check if we should skip this action (before start_step)
+                if plan and plan.current_action_step < plan.start_step:
+                    continue
+                # Check if we should stop (after end_step)
+                if plan and plan.end_step is not None and plan.current_action_step > plan.end_step:
+                    logger.info("Reached end step %d, stopping action execution", plan.end_step)
+                    return (ssh_service, apt_service)
+                # Calculate percentages
+                overall_pct = 0
+                container_pct = 0
+                if plan:
+                    overall_pct = int((plan.current_action_step / plan.total_steps) * 100)
+                    container_pct = int((idx / len(actions)) * 100)
+                    logger.info("=" * 50)
+                    logger.info("[Overall: %d%%] [Container '%s': %d%%] [Step: %d] Starting action: %s", 
+                              overall_pct, container_cfg.name, container_pct, plan.current_action_step, action.description)
+                    logger.info("=" * 50)
+                else:
+                    logger.info("[%d/%d] Running action: %s", idx, len(actions), action.description)
+                try:
+                    if not action.execute():
+                        current_step = plan.current_action_step if plan else idx
+                        logger.error("=" * 50)
+                        logger.error("Action Execution Failed")
+                        logger.error("=" * 50)
+                        logger.error("Container: %s", container_cfg.name)
+                        logger.error("Step: %d", current_step)
+                        logger.error("Action: %s", action.description)
+                        logger.error("=" * 50)
+                        return (None, None)
+                    logger.info("[%d/%d] Action '%s' completed successfully", idx, len(actions), action.description)
+                except Exception as exc:
+                    current_step = plan.current_action_step if plan else idx
+                    logger.error("=" * 50)
+                    logger.error("Action Execution Exception")
+                    logger.error("=" * 50)
+                    logger.error("Container: %s", container_cfg.name)
+                    logger.error("Step: %d", current_step)
+                    logger.error("Action: %s", action.description)
+                    logger.error("Error: %s", exc)
+                    logger.error("=" * 50)
+                    logger.error("Exception details:", exc_info=True)
+                    return (None, None)
+            logger.info("Container '%s' created successfully", container_cfg.name)
+            return (ssh_service, apt_service)
+        except Exception as exc:
+            logger.error("Exception in container setup: %s", exc, exc_info=True)
+            ssh_service.disconnect()
+            return (None, None)
+
+    def _setup_container(self, container_cfg, cfg, plan=None) -> bool:
+        """
+        Setup container using PCTService - internal method
+        Args:
+            container_cfg: ContainerConfig instance
+            cfg: LabConfig instance
+            plan: Optional deployment plan
+        Returns:
+            True if successful, False otherwise
+        """
+        from libs.config import ContainerResources
+        from libs.common import container_exists, destroy_container
+        from services import TemplateService
+        from cli import FileOps, User
+        import shlex
+        
+        container_id = str(container_cfg.id)
+        ip_address = container_cfg.ip_address
+        hostname = container_cfg.hostname
+        gateway = cfg.gateway
+        
+        # Determine template to use
+        if container_cfg.template == "base" or not container_cfg.template:
+            template_name = None  # None means use base template
+        else:
+            template_name = container_cfg.template
+        
+        # Destroy if exists (only if start_step == 1)
+        self.destroy(container_id, force=True)
+        
+        # Get template path
+        template_service = TemplateService(self.lxc)
+        template_path = template_service.get_template_path(template_name, cfg)
+        # Validate template file exists and is readable
+        if not template_service.validate_template(template_path):
+            logger.error("Template file %s is missing or not readable", template_path)
+            base_template = template_service.get_base_template(cfg)
+            template_path = f"{cfg.proxmox_template_dir}/{base_template}"
+            logger.warning("Falling back to base template: %s", template_path)
+        
+        # Check if container already exists
+        logger.info("Checking if container %s already exists...", container_id)
+        container_already_exists = container_exists(cfg.proxmox_host, container_id, cfg=cfg)
+        
+        # Only destroy and recreate if:
+        # 1. Container doesn't exist, OR
+        # 2. We're starting from step 1 (full creation)
+        if not container_already_exists or (plan and plan.start_step == 1):
+            if container_already_exists:
+                destroy_container(cfg.proxmox_host, container_id, cfg=cfg, lxc_service=self.lxc)
+        
+        # Get container resources
+        resources = container_cfg.resources
+        if not resources:
+            resources = ContainerResources(memory=2048, swap=2048, cores=4, rootfs_size=20)
+        
+        # Determine if container should be privileged from config (default to False if not specified)
+        should_be_privileged = container_cfg.privileged if container_cfg.privileged is not None else False
+        should_be_nested = container_cfg.nested if container_cfg.nested is not None else True
+        unprivileged = not should_be_privileged
+        
+        # Create container only if it doesn't exist or we're starting from step 1
+        if not container_already_exists or (plan and plan.start_step == 1):
+            logger.info("Creating container %s from template...", container_id)
+            output, exit_code = self.create(
+                container_id=container_id,
+                template_path=template_path,
+                hostname=hostname,
+                memory=resources.memory,
+                swap=resources.swap,
+                cores=resources.cores,
+                ip_address=ip_address,
+                gateway=gateway,
+                bridge=cfg.proxmox_bridge,
+                storage=cfg.proxmox_storage,
+                rootfs_size=resources.rootfs_size,
+                unprivileged=unprivileged,
+                ostype="ubuntu",
+                arch="amd64",
+            )
+            if exit_code is not None and exit_code != 0:
+                current_step = plan.current_action_step if plan else 0
+                logger.error("=" * 50)
+                logger.error("Container Creation Failed")
+                logger.error("=" * 50)
+                logger.error("Container: %s", container_cfg.name)
+                logger.error("Step: %d", current_step)
+                logger.error("Error: Failed to create container %s: %s", container_id, output)
+                logger.error("=" * 50)
+                return False
+        else:
+            logger.info("Container %s already exists, skipping creation", container_id)
+            # Verify container is running
+            status_output, _ = self.status(container_id)
+            if status_output and "running" not in status_output:
+                logger.info("Starting existing container %s...", container_id)
+                self.start(container_id)
+                time.sleep(3)
+            # Bring up network interface (it may be DOWN when container is restarted)
+            logger.info("Bringing up network interface...")
+            ping_cmd = "ping -c 1 8.8.8.8"
+            output, exit_code = self.execute(container_id, ping_cmd, timeout=10)
+            if exit_code is not None and exit_code != 0:
+                logger.warning("Ping to 8.8.8.8 failed (network may still be initializing): %s", output)
+            else:
+                logger.info("Network interface is up and reachable")
+            # For existing containers, ensure SSH is properly configured before connecting
+            default_user = cfg.users.default_user
+            # Setup SSH key (in case it's missing or changed)
+            if not self.setup_ssh_key(container_id, ip_address, cfg):
+                logger.error("Failed to setup SSH key for existing container %s", container_id)
+                return False
+            # Ensure SSH service is installed and running
+            if not self.ensure_ssh_service_running(container_id, cfg):
+                logger.error("Failed to ensure SSH service is running for existing container %s", container_id)
+                return False
+            # Wait for container to be ready with SSH connectivity
+            logger.info("Waiting for container %s to be ready with SSH connectivity (up to 10 minutes)...", container_id)
+            if not self.wait_for_container(container_id, ip_address, cfg, username=default_user):
+                logger.error("Container %s did not become ready within 10 minutes", container_id)
+                return False
+            # Skip to actions - container is already set up
+            logger.info("Container %s is ready, proceeding to actions", container_id)
+            return True
+        
+        # Set container features BEFORE starting (use nested from config)
+        logger.info("Setting container features...")
+        output, exit_code = self.set_features(container_id, nesting=should_be_nested, keyctl=True, fuse=True)
+        if exit_code is not None and exit_code != 0:
+            logger.warning("Failed to set container features: %s", output)
+        
+        # Start container
+        logger.info("Starting container %s...", container_id)
+        output, exit_code = self.start(container_id)
+        if exit_code is not None and exit_code != 0:
+            current_step = plan.current_action_step if plan else 0
+            logger.error("=" * 50)
+            logger.error("Container Start Failed")
+            logger.error("=" * 50)
+            logger.error("Container: %s", container_cfg.name)
+            logger.error("Step: %d", current_step)
+            logger.error("Error: Failed to start container %s: %s", container_id, output)
+            logger.error("=" * 50)
+            return False
+        
+        # Bring up networking by pinging external host
+        logger.info("Bringing up network interface...")
+        ping_cmd = "ping -c 1 8.8.8.8"
+        output, exit_code = self.execute(container_id, ping_cmd, timeout=10)
+        if exit_code is not None and exit_code != 0:
+            logger.warning("Ping to 8.8.8.8 failed (network may still be initializing): %s", output)
+        else:
+            logger.info("Network interface is up and reachable")
+        
+        # Setup users and SSH before waiting
+        for user_cfg in cfg.users.users:
+            username = user_cfg.name
+            sudo_group = user_cfg.sudo_group
+            # Create user if it doesn't exist
+            check_cmd = User().username(username).check_exists()
+            add_cmd = User().username(username).shell("/bin/bash").groups([sudo_group]).create_home(True).add()
+            user_check_cmd = f"{check_cmd} 2>&1 || {add_cmd}"
+            output, exit_code = self.execute(container_id, user_check_cmd)
+            if exit_code is not None and exit_code != 0:
+                logger.error("Failed to create user %s: %s", username, output)
+                return False
+            # Set password if provided
+            if user_cfg.password:
+                password_cmd = f"echo {shlex.quote(f'{username}:{user_cfg.password}')} | chpasswd"
+                output, exit_code = self.execute(container_id, password_cmd)
+                if exit_code is not None and exit_code != 0:
+                    logger.error("Failed to set password for user %s: %s", username, output)
+                    return False
+                logger.info("Password set for user %s", username)
+            # Configure passwordless sudo
+            sudoers_path = f"/etc/sudoers.d/{username}"
+            sudoers_content = f"{username} ALL=(ALL) NOPASSWD: ALL\n"
+            sudoers_write_cmd = FileOps().write(sudoers_path, sudoers_content)
+            output, exit_code = self.execute(container_id, sudoers_write_cmd)
+            if exit_code is not None and exit_code != 0:
+                logger.error("Failed to write sudoers file for user %s: %s", username, output)
+                return False
+            sudoers_chmod_cmd = FileOps().chmod(sudoers_path, "440")
+            output, exit_code = self.execute(container_id, sudoers_chmod_cmd)
+            if exit_code is not None and exit_code != 0:
+                logger.error("Failed to secure sudoers file for user %s: %s", username, output)
+                return False
+        
+        # Use first user for SSH setup
+        default_user = cfg.users.default_user
+        # Setup SSH key
+        if not self.setup_ssh_key(container_id, ip_address, cfg):
+            logger.error("Failed to setup SSH key")
+            return False
+        # Ensure SSH service is installed and running
+        if not self.ensure_ssh_service_running(container_id, cfg):
+            logger.error("Failed to ensure SSH service is running")
+            return False
+        # Wait for container to be ready (includes SSH connectivity verification, up to 10 min)
+        logger.info("Waiting for container to be ready with SSH connectivity (up to 10 minutes)...")
+        if not self.wait_for_container(container_id, ip_address, cfg, username=default_user):
+            logger.error("Container %s did not become ready within 10 minutes", container_id)
+            return False
+        return True

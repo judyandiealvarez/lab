@@ -62,7 +62,7 @@ class Cleanup(Command):
         for idx, cid in enumerate(container_ids, 1):
             logger.info("[%s/%s] Processing container %s...", idx, total, cid)
             destroy_container(self.cfg.proxmox_host, cid, cfg=self.cfg, lxc_service=self.lxc_service)
-            
+
         self._verify_containers_removed()
 
     def _list_container_ids(self) -> List[str]:

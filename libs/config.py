@@ -19,12 +19,13 @@ class ContainerConfig:  # pylint: disable=too-many-instance-attributes
     id: int
     ip: int  # Last octet only
     hostname: str
-    type: str
     template: Optional[str] = None
     resources: Optional[ContainerResources] = None
     params: Dict[str, Any] = field(default_factory=dict)
     actions: List[str] = field(default_factory=list)
     ip_address: Optional[str] = None  # Full IP, computed later
+    privileged: Optional[bool] = None
+    nested: Optional[bool] = None
 @dataclass
 
 class TemplateConfig:  # pylint: disable=too-many-instance-attributes
@@ -33,16 +34,23 @@ class TemplateConfig:  # pylint: disable=too-many-instance-attributes
     id: int
     ip: int  # Last octet only
     hostname: str
-    type: str
     template: Optional[str] = None  # "base" or name of another template
     resources: Optional[ContainerResources] = None
     ip_address: Optional[str] = None  # Full IP, computed later
     actions: Optional[List[str]] = None
+    privileged: Optional[bool] = None
+    nested: Optional[bool] = None
 @dataclass
 
 class SwarmConfig:
     """Docker Swarm configuration"""
     managers: List[int] = field(default_factory=list)
+    workers: List[int] = field(default_factory=list)
+
+@dataclass
+class KubernetesConfig:
+    """Kubernetes (k3s) configuration"""
+    control: List[int] = field(default_factory=list)
     workers: List[int] = field(default_factory=list)
 @dataclass
 
@@ -72,6 +80,8 @@ class ServicesConfig:
     portainer: ServiceConfig
     postgresql: Optional[ServiceConfig] = None
     haproxy: Optional[ServiceConfig] = None
+    rancher: Optional[ServiceConfig] = None
+    longhorn: Optional[ServiceConfig] = None
 @dataclass
 
 @dataclass
@@ -175,12 +185,15 @@ class LabConfig:  # pylint: disable=too-many-instance-attributes
     waits: WaitsConfig
     timeouts: TimeoutsConfig
     glusterfs: Optional[GlusterFSConfig] = None
+    kubernetes: Optional[KubernetesConfig] = None
     apt_cache_ct: str = "apt-cache"
     # Computed fields
     network_base: Optional[str] = None
     gateway: Optional[str] = None
     swarm_managers: List[ContainerConfig] = field(default_factory=list)
     swarm_workers: List[ContainerConfig] = field(default_factory=list)
+    kubernetes_control: List[ContainerConfig] = field(default_factory=list)
+    kubernetes_workers: List[ContainerConfig] = field(default_factory=list)
     @classmethod
 
     def from_dict(cls, data: Dict[str, Any], verbose: bool = False) -> "LabConfig":  # pylint: disable=too-many-locals
@@ -204,11 +217,12 @@ class LabConfig:  # pylint: disable=too-many-instance-attributes
                     id=ct["id"],
                     ip=ct["ip"],
                     hostname=ct["hostname"],
-                    type=ct["type"],
                     template=ct.get("template"),
                     resources=make_resources(ct.get("resources")),
                     params=ct.get("params", {}),
                     actions=ct.get("actions", []),
+                    privileged=ct.get("privileged"),
+                    nested=ct.get("nested"),
                 )
             )
         # Parse templates
@@ -220,10 +234,11 @@ class LabConfig:  # pylint: disable=too-many-instance-attributes
                     id=tmpl["id"],
                     ip=tmpl["ip"],
                     hostname=tmpl["hostname"],
-                    type=tmpl["type"],
                     template=tmpl.get("template"),
                     resources=make_resources(tmpl.get("resources")),
                     actions=tmpl.get("actions", []),
+                    privileged=tmpl.get("privileged"),
+                    nested=tmpl.get("nested"),
                 )
             )
         # Parse swarm
@@ -232,6 +247,14 @@ class LabConfig:  # pylint: disable=too-many-instance-attributes
             managers=[m["id"] if isinstance(m, dict) else m for m in swarm_data.get("managers", [])],
             workers=[w["id"] if isinstance(w, dict) else w for w in swarm_data.get("workers", [])],
         )
+        # Parse kubernetes (optional)
+        kubernetes = None
+        if "kubernetes" in data:
+            k8s_data = data["kubernetes"]
+            kubernetes = KubernetesConfig(
+                control=[c["id"] if isinstance(c, dict) else c for c in k8s_data.get("control", [])],
+                workers=[w["id"] if isinstance(w, dict) else w for w in k8s_data.get("workers", [])],
+            )
         # Parse proxmox
         proxmox_data = data["proxmox"]
         proxmox = ProxmoxConfig(
@@ -263,6 +286,21 @@ class LabConfig:  # pylint: disable=too-many-instance-attributes
                     stats_port=services_data.get("haproxy", {}).get("stats_port"),
                 )
                 if "haproxy" in services_data
+                else None
+            ),
+            rancher=(
+                ServiceConfig(
+                    port=services_data.get("rancher", {}).get("port"),
+                    image=services_data.get("rancher", {}).get("image"),
+                )
+                if "rancher" in services_data
+                else None
+            ),
+            longhorn=(
+                ServiceConfig(
+                    port=services_data.get("longhorn", {}).get("port"),
+                )
+                if "longhorn" in services_data
                 else None
             ),
         )
@@ -344,6 +382,7 @@ class LabConfig:  # pylint: disable=too-many-instance-attributes
             containers=containers,
             templates=templates,
             swarm=swarm,
+            kubernetes=kubernetes,
             services=services,
             users=users,
             dns=dns,
@@ -373,6 +412,10 @@ class LabConfig:  # pylint: disable=too-many-instance-attributes
         # Build swarm managers and workers lists
         self.swarm_managers = [ct for ct in self.containers if ct.id in self.swarm.managers]
         self.swarm_workers = [ct for ct in self.containers if ct.id in self.swarm.workers]
+        # Build kubernetes control and workers lists
+        if self.kubernetes:
+            self.kubernetes_control = [ct for ct in self.containers if ct.id in self.kubernetes.control]
+            self.kubernetes_workers = [ct for ct in self.containers if ct.id in self.kubernetes.workers]
     # Convenience properties for backward compatibility
     @property
 

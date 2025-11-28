@@ -72,10 +72,9 @@ class TemplateService:
             # Fallback to base template
             base_template = self.get_base_template(cfg)
             return f"{template_dir}/{base_template}"
-        # Find template file by pattern
-        template_type = template_cfg.type
-        pattern = cfg.template_config.patterns.get(template_type, "").replace("{date}", "*")
-        find_cmd = f"ls -t {template_dir}/{pattern} 2>/dev/null | head -1 | xargs basename 2>/dev/null"
+        # Find template file by name - search for files matching template name
+        template_name_pattern = f"{template_cfg.name}*.tar.zst"
+        find_cmd = f"ls -t {template_dir}/{template_name_pattern} 2>/dev/null | head -1 | xargs basename 2>/dev/null"
         template_file, _ = self.lxc.execute(find_cmd)
         if template_file:
             return f"{template_dir}/{template_file.strip()}"

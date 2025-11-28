@@ -6,7 +6,6 @@ from typing import Optional, Sequence, Tuple
 from cli import Apt, CommandWrapper, Docker, PCT, SystemCtl
 from libs import common
 from libs.config import LabConfig, ContainerResources
-from libs.container import get_template_path
 from libs.logger import get_logger
 from services.lxc import LXCService
 from services.pct import PCTService
@@ -45,14 +44,12 @@ class SwarmDeployContext:
         return list(self.managers) + list(self.workers)
 
 def deploy_swarm(cfg: LabConfig):
-    """Deploy Docker Swarm"""
+    """Deploy Docker Swarm - containers should already exist from deploy process"""
     context = _build_swarm_context(cfg)
     if not context:
         return False
-    # Deploy all swarm containers (managers and workers) using Container class and actions
-    if not _deploy_swarm_nodes(context):
-        return False
-    # Now perform swarm-specific orchestration (init, join, portainer)
+    # Containers should already exist from the deploy process
+    # We only need to perform swarm-specific orchestration (init, join, portainer)
     # Docker should already be installed and running via actions
     manager_config = context.managers[0]
     docker_cmd = _get_manager_docker_command(context, manager_config)
@@ -71,35 +68,29 @@ def deploy_swarm(cfg: LabConfig):
 
 def _build_swarm_context(cfg: LabConfig) -> Optional[SwarmDeployContext]:
     """Collect and validate configuration needed for swarm deployment."""
-    managers = [c for c in cfg.containers if c.type == "swarm-manager"]
-    workers = [c for c in cfg.containers if c.type == "swarm-node"]
+    if not cfg.swarm or not cfg.swarm.managers or not cfg.swarm.workers:
+        logger.error("Swarm configuration not found or incomplete")
+        return None
+    # Find containers by ID from swarm config
+    manager_ids = set(cfg.swarm.managers)
+    worker_ids = set(cfg.swarm.workers)
+    managers = [c for c in cfg.containers if c.id in manager_ids]
+    workers = [c for c in cfg.containers if c.id in worker_ids]
     if not managers or not workers:
         logger.error("Swarm manager or worker containers not found in configuration")
         return None
-    template_path = get_template_path("docker-tmpl", cfg)
-    logger.info("Using template: %s", template_path)
+    # Containers should already exist from deploy process, so we don't need template_path
+    # But we keep it for backward compatibility with SwarmDeployContext
+    template_path = ""  # Not used when containers already exist
     apt_cache = _get_apt_cache_proxy(cfg)
     return SwarmDeployContext(cfg, managers, workers, template_path, apt_cache)
 
 def _get_apt_cache_proxy(cfg: LabConfig):
     """Return apt-cache proxy settings if available."""
-    apt_cache = next((c for c in cfg.containers if c.type == "apt-cache"), None)
+    apt_cache = next((c for c in cfg.containers if c.name == cfg.apt_cache_ct), None)
     if not apt_cache:
         return None, None
     return apt_cache.ip_address, cfg.apt_cache_port
-
-def _deploy_swarm_nodes(context: SwarmDeployContext) -> bool:
-    """Create and configure all swarm containers using Container class and actions."""
-    from libs.container_manager import Container
-    for container_cfg in context.all_nodes:
-        logger.info("\nDeploying container %s (%s)...", container_cfg.id, container_cfg.hostname)
-        # Use common Container class which handles creation, SSH setup, and actions
-        container = Container(container_cfg, context.cfg)
-        if not container.create():
-            logger.error("Failed to deploy container %s", container_cfg.id)
-            return False
-        logger.info("Container %s (%s) deployed successfully", container_cfg.id, container_cfg.hostname)
-    return True
 
 def _deploy_single_swarm_container(ctx: SwarmContainerContext) -> bool:
     """Provision one swarm container from template through Docker readiness."""
@@ -110,21 +101,41 @@ def _deploy_single_swarm_container(ctx: SwarmContainerContext) -> bool:
     hostname = container_cfg.hostname
     ip_address = container_cfg.ip_address
     logger.info("\nDeploying container %s (%s)...", container_id, hostname)
-    _destroy_existing_container(proxmox_host, container_id, cfg)
-    resources = _resolve_container_resources(container_cfg)
-    if not _create_swarm_container(ctx, resources):
-        return False
-    _configure_container_features(ctx)
-    if container_cfg.type == "swarm-manager":
-        _configure_lxc_sysctl_access(proxmox_host, container_id, cfg)
-    if not _start_and_verify_container(ctx, ip_address):
-        return False
-    if not _setup_container_ssh(ctx, ip_address):
-        return False
-    _configure_container_proxy(ctx)
+    
+    # Only destroy and recreate if container doesn't exist
+    if not container_exists(proxmox_host, container_id, cfg=cfg):
+        resources = _resolve_container_resources(container_cfg)
+        if not _create_swarm_container(ctx, resources):
+            return False
+        _configure_container_features(ctx)
+        # Configure sysctl access for managers (containers in swarm.managers)
+        if cfg.swarm and container_id in cfg.swarm.managers:
+            _configure_lxc_sysctl_access(proxmox_host, container_id, cfg)
+        if not _start_and_verify_container(ctx, ip_address):
+            return False
+        if not _setup_container_ssh(ctx, ip_address):
+            return False
+        _configure_container_proxy(ctx)
+    else:
+        logger.info("Container %s already exists, reusing it", container_id)
+        # Ensure container is running
+        status_cmd = PCT().container_id(container_id).status()
+        status_output = ssh_exec(proxmox_host, status_cmd, check=False, timeout=10, cfg=cfg)
+        if not PCT.parse_status_output(status_output, container_id):
+            logger.info("Starting existing container %s...", container_id)
+            start_cmd = PCT().container_id(container_id).start()
+            ssh_exec(proxmox_host, start_cmd, check=False, cfg=cfg)
+            time.sleep(cfg.waits.container_startup)
+        # Wait for container to be ready
+        if not wait_for_container(proxmox_host, container_id, ip_address, cfg=cfg):
+            logger.error("Container did not become ready")
+            return False
+    
+    # Ensure Docker is running (for both new and existing containers)
     if not _ensure_container_docker(ctx):
         return False
-    if container_cfg.type == "swarm-manager":
+    # Configure manager runtime for managers (containers in swarm.managers)
+    if cfg.swarm and container_id in cfg.swarm.managers:
         _configure_manager_runtime(ctx)
     logger.info("Container %s (%s) deployed successfully", container_id, hostname)
     return True
@@ -585,8 +596,8 @@ def _install_portainer(context: SwarmDeployContext, docker_cmd: str) -> bool:  #
                     "portainer_data:/data",
                 ],
                 security_opts=["apparmor=unconfined"],
+                )
             )
-        )
         pct_service.execute(str(manager_id), portainer_cmd)
         time.sleep(cfg.waits.portainer_start)
         logger.info("Verifying Portainer is running...")
@@ -603,19 +614,19 @@ def _install_portainer(context: SwarmDeployContext, docker_cmd: str) -> bool:  #
             logger.info("Portainer status: %s", portainer_status)
         else:
             logger.warning("Portainer container not found")
-        portainer_running, _ = pct_service.execute(
-            str(manager_id),
-            f"{docker_cmd} ps --format '{{{{.Names}}}}' | grep -q '^portainer$' && echo yes || echo no",
-        )
-        if portainer_running and "no" in portainer_running:
-            logger.warning("Portainer failed to start. Checking logs...")
-            logs, _ = pct_service.execute(
+            portainer_running, _ = pct_service.execute(
                 str(manager_id),
-                f"{docker_cmd} logs portainer 2>&1 | tail -20",
+                f"{docker_cmd} ps --format '{{{{.Names}}}}' | grep -q '^portainer$' && echo yes || echo no",
             )
-            if logs:
-                logger.warning(logs)
-            return False
+            if portainer_running and "no" in portainer_running:
+                logger.warning("Portainer failed to start. Checking logs...")
+                logs, _ = pct_service.execute(
+                    str(manager_id),
+                    f"{docker_cmd} logs portainer 2>&1 | tail -20",
+                )
+                if logs:
+                    logger.warning(logs)
+                return False
         return True
     finally:
         lxc_service.disconnect()
