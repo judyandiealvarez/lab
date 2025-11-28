@@ -33,16 +33,16 @@ def deploy_kubernetes(cfg: LabConfig):
     if not context:
         return False
     # Containers should already exist from the deploy process
-    # We only need to perform k3s-specific orchestration (get token, join workers, install Rancher, install Longhorn)
+    # We only need to perform k3s-specific orchestration (get token, join workers, install Rancher)
     # k3s should already be installed via actions
     control_config = context.control[0]
     if not _get_k3s_token(context, control_config):
         return False
     if not _join_workers_to_cluster(context, control_config):
         return False
-    if not _install_rancher(context, control_config):
+    if not _taint_control_plane(context, control_config):
         return False
-    if not _install_longhorn(context, control_config):
+    if not _install_rancher(context, control_config):
         return False
     logger.info("Kubernetes (k3s) cluster deployed")
     return True
@@ -193,6 +193,49 @@ def _join_workers_to_cluster(context: KubernetesDeployContext, control_config) -
                     logger.error("Service is not active")
                 return False
         return True
+    finally:
+        lxc_service.disconnect()
+
+def _taint_control_plane(context: KubernetesDeployContext, control_config) -> bool:
+    """Taint the control plane node to prevent regular pods from scheduling on it."""
+    proxmox_host = context.proxmox_host
+    cfg = context.cfg
+    control_id = control_config.id
+    lxc_service = LXCService(proxmox_host, cfg.ssh)
+    if not lxc_service.connect():
+        return False
+    try:
+        pct_service = PCTService(lxc_service)
+        logger.info("Tainting control plane node to prevent regular pods from scheduling...")
+        # Wait for kubectl to be available
+        max_wait = 60
+        wait_time = 0
+        while wait_time < max_wait:
+            check_cmd = "kubectl get nodes 2>&1"
+            check_output, check_exit = pct_service.execute(str(control_id), check_cmd, timeout=30)
+            if check_exit == 0 and check_output and "Ready" in check_output:
+                break
+            time.sleep(2)
+            wait_time += 2
+        if wait_time >= max_wait:
+            logger.warning("kubectl not ready, skipping control plane taint")
+            return True  # Don't fail deployment if we can't taint
+        
+        # Apply taint to control plane node
+        # This prevents regular pods from being scheduled on the control plane
+        # System pods (with tolerations) will still run
+        taint_cmd = "kubectl taint nodes k3s-control node-role.kubernetes.io/control-plane:NoSchedule --overwrite 2>&1"
+        taint_output, taint_exit = pct_service.execute(str(control_id), taint_cmd, timeout=30)
+        if taint_exit == 0:
+            logger.info("Control plane node tainted successfully - regular pods will not schedule on it")
+            return True
+        else:
+            # Check if taint already exists
+            if taint_output and ("already has" in taint_output or "modified" in taint_output):
+                logger.info("Control plane node already tainted")
+                return True
+            logger.warning("Failed to taint control plane node: %s", taint_output[-200:] if taint_output else "No output")
+            return True  # Don't fail deployment if taint fails
     finally:
         lxc_service.disconnect()
 
@@ -440,31 +483,6 @@ def _install_rancher(context: KubernetesDeployContext, control_config) -> bool:
                     logger.error("k3s service logs: %s", k3s_logs)
                 return False
         return False
-    finally:
-        lxc_service.disconnect()
-
-def _install_longhorn(context: KubernetesDeployContext, control_config) -> bool:
-    """Install Longhorn distributed storage."""
-    if not context.cfg.services.longhorn:
-        logger.info("Longhorn not configured, skipping installation")
-        return True
-    proxmox_host = context.proxmox_host
-    cfg = context.cfg
-    control_id = control_config.id
-    lxc_service = LXCService(proxmox_host, cfg.ssh)
-    if not lxc_service.connect():
-        return False
-    try:
-        pct_service = PCTService(lxc_service)
-        logger.info("Installing Longhorn...")
-        # Install Longhorn using kubectl (use standard k3s kubeconfig)
-        install_cmd = "kubectl apply -f https://raw.githubusercontent.com/longhorn/longhorn/v1.6.0/deploy/longhorn.yaml"
-        install_output, install_exit = pct_service.execute(str(control_id), install_cmd, timeout=600)
-        if install_exit is not None and install_exit != 0:
-            logger.error("Failed to install Longhorn: %s", install_output)
-            return False
-        logger.info("Longhorn installed successfully")
-        return True
     finally:
         lxc_service.disconnect()
 

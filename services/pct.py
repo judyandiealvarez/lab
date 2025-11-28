@@ -66,7 +66,7 @@ class PCTService:
         """
         if sudo:
             command = f"sudo -n {command}"
-        logger.info("Running in container %s: %s", container_id, command)
+        logger.debug("Running in container %s: %s", container_id, command)
         pct_cmd = self._build_pct_exec_command(container_id, command)
         return self.lxc.execute(pct_cmd, timeout=timeout)
 

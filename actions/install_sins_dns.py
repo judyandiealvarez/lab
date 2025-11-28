@@ -52,6 +52,9 @@ class InstallSinsDnsAction(Action):
         web_port = params.get("web_port", 80)
         # Create appsettings.json
         logger.info("Configuring SiNS application settings...")
+        # Generate a secure 256-bit (32 bytes) JWT secret key
+        import secrets
+        jwt_secret = secrets.token_urlsafe(32)  # 32 bytes = 256 bits
         appsettings = {
             "ConnectionStrings": {
                 "DefaultConnection": f"Host={postgres_host};Port={postgres_port};Database={postgres_db};Username={postgres_user};Password={postgres_password}"
@@ -61,6 +64,12 @@ class InstallSinsDnsAction(Action):
             },
             "WebSettings": {
                 "Port": web_port
+            },
+            "Jwt": {
+                "Key": jwt_secret,
+                "Issuer": "SiNS-DNS-Server",
+                "Audience": "SiNS-DNS-Client",
+                "ExpirationMinutes": 1440
             }
         }
         appsettings_json = json.dumps(appsettings, indent=2)

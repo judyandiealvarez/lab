@@ -41,13 +41,6 @@ class TemplateConfig:  # pylint: disable=too-many-instance-attributes
     privileged: Optional[bool] = None
     nested: Optional[bool] = None
 @dataclass
-
-class SwarmConfig:
-    """Docker Swarm configuration"""
-    managers: List[int] = field(default_factory=list)
-    workers: List[int] = field(default_factory=list)
-
-@dataclass
 class KubernetesConfig:
     """Kubernetes (k3s) configuration"""
     control: List[int] = field(default_factory=list)
@@ -71,13 +64,13 @@ class ServiceConfig:
     https_port: Optional[int] = None
     stats_port: Optional[int] = None
     password: Optional[str] = None
+    username: Optional[str] = None
+    database: Optional[str] = None
 @dataclass
 
 class ServicesConfig:
     """All services configuration"""
     apt_cache: ServiceConfig
-    docker_swarm: ServiceConfig
-    portainer: ServiceConfig
     postgresql: Optional[ServiceConfig] = None
     haproxy: Optional[ServiceConfig] = None
     rancher: Optional[ServiceConfig] = None
@@ -148,34 +141,31 @@ class WaitsConfig:  # pylint: disable=too-many-instance-attributes
     container_ready_sleep: int
     network_config: int
     service_start: int
-    swarm_init: int
-    portainer_start: int
     glusterfs_setup: int
 @dataclass
 
+@dataclass
 class GlusterFSConfig:
     """GlusterFS configuration"""
     volume_name: str
     brick_path: str
     mount_point: str
     replica_count: int
-@dataclass
+    cluster_nodes: Optional[List[Dict[str, int]]] = None
 
+@dataclass
 class TimeoutsConfig:
     """Timeout configuration"""
     apt_cache: int
     ubuntu_template: int
-    docker_template: int
-    swarm_deploy: int
-@dataclass
 
+@dataclass
 class LabConfig:  # pylint: disable=too-many-instance-attributes
     """Main lab configuration class"""
     network: str
     proxmox: ProxmoxConfig
     containers: List[ContainerConfig]
     templates: List[TemplateConfig]
-    swarm: SwarmConfig
     services: ServicesConfig
     users: UsersConfig
     dns: DNSConfig
@@ -190,8 +180,6 @@ class LabConfig:  # pylint: disable=too-many-instance-attributes
     # Computed fields
     network_base: Optional[str] = None
     gateway: Optional[str] = None
-    swarm_managers: List[ContainerConfig] = field(default_factory=list)
-    swarm_workers: List[ContainerConfig] = field(default_factory=list)
     kubernetes_control: List[ContainerConfig] = field(default_factory=list)
     kubernetes_workers: List[ContainerConfig] = field(default_factory=list)
     @classmethod
@@ -241,12 +229,6 @@ class LabConfig:  # pylint: disable=too-many-instance-attributes
                     nested=tmpl.get("nested"),
                 )
             )
-        # Parse swarm
-        swarm_data = data.get("swarm", {})
-        swarm = SwarmConfig(
-            managers=[m["id"] if isinstance(m, dict) else m for m in swarm_data.get("managers", [])],
-            workers=[w["id"] if isinstance(w, dict) else w for w in swarm_data.get("workers", [])],
-        )
         # Parse kubernetes (optional)
         kubernetes = None
         if "kubernetes" in data:
@@ -268,14 +250,13 @@ class LabConfig:  # pylint: disable=too-many-instance-attributes
         services_data = data["services"]
         services = ServicesConfig(
             apt_cache=ServiceConfig(port=services_data["apt_cache"]["port"]),
-            docker_swarm=ServiceConfig(port=services_data["docker_swarm"]["port"]),
-            portainer=ServiceConfig(
-                port=services_data["portainer"]["port"],
-                image=services_data["portainer"]["image"],
-                password=services_data["portainer"].get("password"),
-            ),
             postgresql=(
-                ServiceConfig(port=services_data.get("postgresql", {}).get("port"))
+                ServiceConfig(
+                    port=services_data.get("postgresql", {}).get("port"),
+                    username=services_data.get("postgresql", {}).get("username", "postgres"),
+                    password=services_data.get("postgresql", {}).get("password", "postgres"),
+                    database=services_data.get("postgresql", {}).get("database", "postgres"),
+                )
                 if "postgresql" in services_data
                 else None
             ),
@@ -354,8 +335,6 @@ class LabConfig:  # pylint: disable=too-many-instance-attributes
             container_ready_sleep=waits_data["container_ready_sleep"],
             network_config=waits_data["network_config"],
             service_start=waits_data["service_start"],
-            swarm_init=waits_data["swarm_init"],
-            portainer_start=waits_data["portainer_start"],
             glusterfs_setup=waits_data["glusterfs_setup"],
         )
         # Parse timeouts
@@ -363,8 +342,6 @@ class LabConfig:  # pylint: disable=too-many-instance-attributes
         timeouts = TimeoutsConfig(
             apt_cache=timeouts_data["apt_cache"],
             ubuntu_template=timeouts_data["ubuntu_template"],
-            docker_template=timeouts_data["docker_template"],
-            swarm_deploy=timeouts_data["swarm_deploy"],
         )
         # Parse GlusterFS (optional)
         glusterfs = None
@@ -375,13 +352,13 @@ class LabConfig:  # pylint: disable=too-many-instance-attributes
                 brick_path=glusterfs_data.get("brick_path", "/gluster/brick"),
                 mount_point=glusterfs_data.get("mount_point", "/mnt/gluster"),
                 replica_count=glusterfs_data.get("replica_count", 2),
+                cluster_nodes=glusterfs_data.get("cluster_nodes"),
             )
         return cls(
             network=data["network"],
             proxmox=proxmox,
             containers=containers,
             templates=templates,
-            swarm=swarm,
             kubernetes=kubernetes,
             services=services,
             users=users,
@@ -409,9 +386,6 @@ class LabConfig:  # pylint: disable=too-many-instance-attributes
         # Compute IP addresses for templates
         for template in self.templates:
             template.ip_address = f"{self.network_base}.{template.ip}"
-        # Build swarm managers and workers lists
-        self.swarm_managers = [ct for ct in self.containers if ct.id in self.swarm.managers]
-        self.swarm_workers = [ct for ct in self.containers if ct.id in self.swarm.workers]
         # Build kubernetes control and workers lists
         if self.kubernetes:
             self.kubernetes_control = [ct for ct in self.containers if ct.id in self.kubernetes.control]
@@ -437,21 +411,6 @@ class LabConfig:  # pylint: disable=too-many-instance-attributes
     def proxmox_template_dir(self) -> str:
         """Return proxmox template directory."""
         return self.proxmox.template_dir
-    @property
-
-    def swarm_port(self) -> int:
-        """Return Docker Swarm port."""
-        return self.services.docker_swarm.port
-    @property
-
-    def portainer_port(self) -> int:
-        """Return Portainer port."""
-        return self.services.portainer.port
-    @property
-
-    def portainer_image(self) -> str:
-        """Return Portainer image."""
-        return self.services.portainer.image
     @property
 
     def apt_cache_port(self) -> int:

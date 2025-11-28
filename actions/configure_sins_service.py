@@ -18,7 +18,13 @@ class ConfigureSinsServiceAction(Action):
             return False
         # Create systemd service file
         logger.info("Creating SiNS systemd service...")
-        service_content = """[Unit]
+        # Get web port from container params
+        web_port = 80
+        if hasattr(self, "container_cfg") and self.container_cfg:
+            params = self.container_cfg.params or {}
+            web_port = params.get("web_port", 80)
+        
+        service_content = f"""[Unit]
 Description=SiNS DNS Server
 After=network.target
 
@@ -26,6 +32,7 @@ After=network.target
 Type=simple
 User=root
 WorkingDirectory=/opt/sins/app
+Environment=ASPNETCORE_URLS=http://0.0.0.0:{web_port}
 ExecStart=/usr/bin/dotnet /opt/sins/app/sins.dll
 Restart=always
 RestartSec=10

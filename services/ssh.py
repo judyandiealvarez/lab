@@ -163,7 +163,7 @@ class SSHService:
                 import shlex
                 escaped_command = shlex.quote(command)
                 command = f"sudo -n bash -c {escaped_command}"
-        logger.info("Running: %s", command)
+        logger.debug("Running: %s", command)
         exec_timeout = timeout if timeout else self.ssh_config.default_exec_timeout
         try:
             _, stdout, stderr = self._client.exec_command(command, timeout=exec_timeout, get_pty=True)

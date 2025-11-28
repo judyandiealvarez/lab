@@ -82,7 +82,9 @@ def main():
     
     args = parser.parse_args()
     # Initialize logging (always log to file)
-    init_logger(level=logging.INFO)
+    # Use DEBUG level if verbose flag is set, otherwise INFO
+    log_level = logging.DEBUG if args.verbose else logging.INFO
+    init_logger(level=log_level)
     # Store verbose flag globally for config access
     global VERBOSE_FLAG
     VERBOSE_FLAG = args.verbose

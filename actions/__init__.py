@@ -36,9 +36,9 @@ from .template_cleanup import TemplateCleanupAction
 from .create_template_archive import CreateTemplateArchiveAction
 from .wait_apt_cache_ready import WaitAptCacheReadyAction
 from .create_container import CreateContainerAction
-from .setup_swarm import SetupSwarmAction
 from .setup_kubernetes import SetupKubernetesAction
 from .install_k3s import InstallK3sAction
+from .install_glusterfs import InstallGlusterfsAction
 
 __all__ = [
     "Action",
@@ -76,8 +76,8 @@ __all__ = [
     "CreateTemplateArchiveAction",
     "WaitAptCacheReadyAction",
     "CreateContainerAction",
-    "SetupSwarmAction",
     "SetupKubernetesAction",
     "InstallK3sAction",
+    "InstallGlusterfsAction",
 ]
 

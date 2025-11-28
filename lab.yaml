@@ -26,25 +26,6 @@ templates:
       - base tools installation
       - template cleanup
       - template archive creation
-  - name: docker-tmpl
-    id: 3008
-    ip: 8  # Last octet only
-    hostname: "docker-tmpl"
-    template: ubuntu-tmpl
-    privileged: true
-    nested: true
-    resources:
-      memory: 4096
-      swap: 4096
-      cores: 8
-      rootfs_size: 40
-    actions:
-      - Docker installation
-      - Docker service start
-      - template cleanup
-      - template archive creation
-
-
 ct:
   - name: apt-cache
     id: 3020
@@ -108,7 +89,7 @@ ct:
     id: 3019
     ip: 19  # Last octet only
     hostname: "dns"
-    template: docker-tmpl
+    template: ubuntu-tmpl
     privileged: true
     nested: true
     resources:
@@ -131,59 +112,6 @@ ct:
       - sins dns installation
       - sins dns service configuration
       - sins dns service enablement
-  - name: swarm-manager
-    id: 3005
-    ip: 5  # Last octet only
-    hostname: "swarm-manager"
-    template: docker-tmpl
-    privileged: true
-    nested: true
-    resources:
-      memory: 4096
-      swap: 4096
-      cores: 8
-      rootfs_size: 40
-    params:
-      port: 2377
-    actions:
-      - cloud-init wait
-      - lxc sysctl access configuration
-      - docker service start
-      - docker sysctl configuration
-  - name: swarm-node-1
-    id: 3006
-    ip: 6  # Last octet only
-    hostname: "swarm-node-1"
-    template: docker-tmpl
-    privileged: true
-    nested: true
-    resources:
-      memory: 4096
-      swap: 4096
-      cores: 8
-      rootfs_size: 40
-    params:
-      port: 2377
-    actions:
-      - cloud-init wait
-      - docker service start
-  - name: swarm-node-2
-    id: 3007
-    ip: 7  # Last octet only
-    hostname: "swarm-node-2"
-    template: docker-tmpl
-    privileged: true
-    nested: true
-    resources:
-      memory: 4096
-      swap: 4096
-      cores: 8
-      rootfs_size: 40
-    params:
-      port: 2377
-    actions:
-      - cloud-init wait
-      - docker service start
   - name: k3s-control
     id: 3011
     ip: 11  # Last octet only
@@ -234,13 +162,67 @@ ct:
       - cloud-init wait
       - lxc sysctl access configuration
       - k3s installation
-
-swarm:
-  managers:
-    - id: 3005
-  workers:
-    - id: 3006
-    - id: 3007
+  - name: k3s-worker-3
+    id: 3014
+    ip: 14  # Last octet only
+    hostname: "k3s-worker-3"
+    template: ubuntu-tmpl
+    privileged: true
+    nested: true
+    resources:
+      memory: 4096
+      swap: 4096
+      cores: 8
+      rootfs_size: 40
+    actions:
+      - cloud-init wait
+      - lxc sysctl access configuration
+      - k3s installation
+  - name: glusterfs-node-1
+    id: 3021
+    ip: 21  # Last octet only
+    hostname: "glusterfs-node-1"
+    template: ubuntu-tmpl
+    privileged: true
+    nested: true
+    resources:
+      memory: 4096
+      swap: 4096
+      cores: 8
+      rootfs_size: 40
+    actions:
+      - cloud-init wait
+      - glusterfs server installation
+  - name: glusterfs-node-2
+    id: 3022
+    ip: 22  # Last octet only
+    hostname: "glusterfs-node-2"
+    template: ubuntu-tmpl
+    privileged: true
+    nested: true
+    resources:
+      memory: 4096
+      swap: 4096
+      cores: 8
+      rootfs_size: 40
+    actions:
+      - cloud-init wait
+      - glusterfs server installation
+  - name: glusterfs-node-3
+    id: 3023
+    ip: 23  # Last octet only
+    hostname: "glusterfs-node-3"
+    template: ubuntu-tmpl
+    privileged: true
+    nested: true
+    resources:
+      memory: 4096
+      swap: 4096
+      cores: 8
+      rootfs_size: 40
+    actions:
+      - cloud-init wait
+      - glusterfs server installation
 
 kubernetes:
   control:
@@ -248,13 +230,12 @@ kubernetes:
   workers:
     - id: 3012
     - id: 3013
+    - id: 3014
 
 # Script timeouts (in seconds)
 timeouts:
   apt_cache: 900
   ubuntu_template: 1200
-  docker_template: 1500
-  swarm_deploy: 2400
 
 # Proxmox/LXC constants
 proxmox:
@@ -274,13 +255,11 @@ users:
 services:
   apt_cache:
     port: 3142
-  docker_swarm:
-    port: 2377
-  portainer:
-    port: 9443
-    image: "portainer/portainer-ce:latest"
   postgresql:
     port: 5432
+    username: postgres
+    password: postgres
+    database: postgres
   haproxy:
     http_port: 80
     https_port: 443
@@ -288,8 +267,6 @@ services:
   rancher:
     port: 30443
     image: "rancher/rancher:latest"
-  longhorn:
-    port: 8000
 
 # DNS servers
 dns:
@@ -313,11 +290,9 @@ template_config:
 #    - "ubuntu-24.10-standard_24.10-1_amd64.tar.zst"
   patterns:
     ubuntu: "ubuntu-25.04-template_{date}_amd64.tar.zst"
-    "ubuntu+docker": "docker-ubuntu25.04-template_{date}_amd64.tar.zst"
   preserve:
     - "ubuntu-24.10-standard_24.10-1_amd64.tar.zst"
     - "ubuntu-25.04-template_*.tar.zst"
-    - "docker-ubuntu25.04-template_*.tar.zst"
 
 # SSH configuration
 ssh:
@@ -331,14 +306,16 @@ waits:
   container_ready_sleep: 3
   network_config: 5
   service_start: 10
-  swarm_init: 5
-  portainer_start: 10
   glusterfs_setup: 30
 
 # GlusterFS distributed storage configuration
 glusterfs:
-  volume_name: "swarm-storage"
+  volume_name: "shared-storage"
   brick_path: "/gluster/brick"
   mount_point: "/mnt/gluster"
-  replica_count: 2  # Replicate across 2 worker nodes
+  replica_count: 3  # Replicate across 3 GlusterFS nodes
+  cluster_nodes:
+    - id: 3021
+    - id: 3022
+    - id: 3023
 

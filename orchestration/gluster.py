@@ -29,7 +29,7 @@ class NodeInfo:
         return cls(container_id=container_cfg.id, hostname=container_cfg.hostname, ip_address=container_cfg.ip_address)
 
 def setup_glusterfs(cfg: LabConfig):
-    """Setup GlusterFS distributed storage across Swarm nodes"""
+    """Setup GlusterFS distributed storage"""
     logger.info("\n[5/7] Setting up GlusterFS distributed storage...")
     if not cfg.glusterfs:
         logger.info("GlusterFS configuration not found, skipping...")
@@ -47,7 +47,7 @@ def setup_glusterfs(cfg: LabConfig):
         lambda: _fix_apt_sources(all_nodes, cfg),
         lambda: _install_gluster_packages(all_nodes, proxy_settings, cfg),
         lambda: _delay(cfg.waits.glusterfs_setup),
-        lambda: _create_bricks(workers, gluster_cfg.brick_path, cfg),
+        lambda: _create_bricks(all_nodes, gluster_cfg.brick_path, cfg),
     ]
     for step in ordered_steps:
         if not step():
@@ -68,26 +68,35 @@ def setup_glusterfs(cfg: LabConfig):
         failure_detected = True
     if not failure_detected and not _mount_gluster_volume(manager, workers, gluster_cfg, cfg):
         failure_detected = True
+    # Mount GlusterFS on Swarm and K3s nodes as clients
+    if not failure_detected:
+        _mount_gluster_on_clients(manager, gluster_cfg, cfg)
     if failure_detected:
         return False
     _log_gluster_summary(gluster_cfg)
     return True
 
 def _collect_gluster_nodes(cfg: LabConfig) -> Tuple[Optional[NodeInfo], Sequence[NodeInfo]]:
-    """Return manager and worker nodes as NodeInfo objects."""
-    if not cfg.swarm or not cfg.swarm.managers or not cfg.swarm.workers:
-        logger.error("Swarm configuration not found or incomplete")
+    """Collect GlusterFS nodes from dedicated cluster_nodes"""
+    if not cfg.glusterfs:
         return None, []
-    manager_ids = set(cfg.swarm.managers)
-    worker_ids = set(cfg.swarm.workers)
-    managers = [c for c in cfg.containers if c.id in manager_ids]
-    workers = [c for c in cfg.containers if c.id in worker_ids]
-    if not managers or not workers:
-        logger.error("Swarm managers or workers not found")
+    
+    # Check if dedicated cluster nodes are configured
+    if not cfg.glusterfs.cluster_nodes:
+        logger.error("GlusterFS cluster_nodes configuration not found")
         return None, []
-    manager_node = NodeInfo.from_container(managers[0])
-    worker_nodes = [NodeInfo.from_container(worker) for worker in workers]
-    return manager_node, worker_nodes
+    
+    cluster_node_ids = [node["id"] for node in cfg.glusterfs.cluster_nodes]
+    gluster_nodes = [
+        NodeInfo.from_container(container)
+        for container in cfg.containers
+        if container.id in cluster_node_ids
+    ]
+    if len(gluster_nodes) < 2:
+        logger.error("Need at least 2 GlusterFS cluster nodes, found %d", len(gluster_nodes))
+        return None, []
+    # First node is manager, rest are workers
+    return gluster_nodes[0], gluster_nodes[1:]
 
 def _get_apt_cache_proxy(cfg: LabConfig):
     """Return apt-cache proxy settings if available."""
@@ -234,20 +243,20 @@ def _ensure_glusterd_running(node, cfg, pct_service):
     logger.error("%s: GlusterFS installed but glusterd is not running: %s", node.hostname, glusterd_check_output)
     return False
 
-def _create_bricks(workers, brick_path, cfg):
-    """Create brick directories on worker nodes."""
-    logger.info("Creating brick directories on worker nodes...")
+def _create_bricks(nodes, brick_path, cfg):
+    """Create brick directories on all nodes."""
+    logger.info("Creating brick directories on all nodes...")
     proxmox_host = cfg.proxmox_host
     lxc_service = LXCService(proxmox_host, cfg.ssh)
     if not lxc_service.connect():
         return False
     try:
         pct_service = PCTService(lxc_service)
-        for worker in workers:
-            logger.info("Creating brick on %s...", worker.hostname)
-            brick_result, _ = pct_service.execute(str(worker.container_id), f"mkdir -p {brick_path} && chmod 755 {brick_path} 2>&1")
+        for node in nodes:
+            logger.info("Creating brick on %s...", node.hostname)
+            brick_result, _ = pct_service.execute(str(node.container_id), f"mkdir -p {brick_path} && chmod 755 {brick_path} 2>&1")
             if brick_result and "error" in brick_result.lower():
-                logger.error("Failed to create brick directory on %s: %s", worker.hostname, brick_result[-300:])
+                logger.error("Failed to create brick directory on %s: %s", node.hostname, brick_result[-300:])
                 return False
         return True
     finally:
@@ -361,7 +370,9 @@ def _ensure_volume(  # pylint: disable=too-many-locals
         if Gluster.parse_volume_exists(volume_exists_output):
             logger.info("Volume '%s' already exists", volume_name)
             return True
-        brick_list = [f"{worker.ip_address}:{brick_path}" for worker in workers]
+        # Include all nodes (manager + workers) in brick list for replica setup
+        all_nodes = [manager] + list(workers)
+        brick_list = [f"{node.ip_address}:{brick_path}" for node in all_nodes]
         create_cmd = Gluster().gluster_cmd(gluster_cmd).force().volume_create(volume_name, replica_count, brick_list)
         create_output, _ = pct_service.execute(str(manager.container_id), create_cmd)
         create_result = CommandWrapper.parse_result(create_output)
@@ -447,6 +458,67 @@ def _verify_mount(node, mount_point, cfg, pct_service):
         return False
     logger.warning("%s: Mount status unclear - %s", node.hostname, mount_info[:80] if mount_info else "No output")
     return True
+
+def _mount_gluster_on_clients(manager, gluster_cfg, cfg):
+    """Mount GlusterFS volume on Swarm and K3s nodes as clients."""
+    proxmox_host = cfg.proxmox_host
+    volume_name = gluster_cfg.volume_name
+    mount_point = gluster_cfg.mount_point
+    
+    # Collect K3s nodes
+    client_nodes = []
+    if cfg.kubernetes:
+        if cfg.kubernetes.control:
+            client_nodes.extend([c for c in cfg.containers if c.id in cfg.kubernetes.control])
+        if cfg.kubernetes.workers:
+            client_nodes.extend([c for c in cfg.containers if c.id in cfg.kubernetes.workers])
+    
+    # Remove duplicates
+    client_nodes = list({c.id: c for c in client_nodes}.values())
+    
+    if not client_nodes:
+        logger.info("No K3s nodes found for GlusterFS client mounting")
+        return
+    
+    lxc_service = LXCService(proxmox_host, cfg.ssh)
+    if not lxc_service.connect():
+        logger.warning("Failed to connect to Proxmox host for client mounting")
+        return
+    
+    try:
+        pct_service = PCTService(lxc_service)
+        logger.info("Mounting GlusterFS volume on %d client nodes...", len(client_nodes))
+        
+        # Install glusterfs-client on client nodes
+        for node in client_nodes:
+            logger.info("Installing glusterfs-client on %s...", node.hostname)
+            install_cmd = Apt.install_cmd(["glusterfs-client"])
+            install_output, exit_code = pct_service.execute(str(node.id), install_cmd, timeout=300)
+            if exit_code is not None and exit_code != 0:
+                logger.warning("Failed to install glusterfs-client on %s: %s", node.hostname, install_output)
+                continue
+        
+        # Mount on client nodes
+        for node in client_nodes:
+            logger.info("Mounting GlusterFS on %s...", node.hostname)
+            mkdir_cmd = f"mkdir -p {mount_point}"
+            pct_service.execute(str(node.id), mkdir_cmd, timeout=10)
+            
+            fstab_entry = f"{manager.hostname}:/{volume_name} {mount_point} glusterfs defaults,_netdev 0 0"
+            fstab_cmd = f"grep -q '{mount_point}' /etc/fstab || echo '{fstab_entry}' >> /etc/fstab"
+            pct_service.execute(str(node.id), fstab_cmd, timeout=10)
+            
+            mount_cmd = (
+                f"mount -t glusterfs {manager.hostname}:/{volume_name} {mount_point} 2>&1 || "
+                f"mount -t glusterfs {manager.ip_address}:/{volume_name} {mount_point} 2>&1"
+            )
+            mount_result, _ = pct_service.execute(str(node.id), mount_cmd, timeout=30)
+            if mount_result and "error" in mount_result.lower() and "already mounted" not in mount_result.lower():
+                logger.warning("Failed to mount GlusterFS on %s: %s", node.hostname, mount_result[-200:])
+            else:
+                logger.info("GlusterFS mounted successfully on %s", node.hostname)
+    finally:
+        lxc_service.disconnect()
 
 def _log_gluster_summary(gluster_cfg):
     """Print a concise summary of GlusterFS deployment."""
