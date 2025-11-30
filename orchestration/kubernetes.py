@@ -410,12 +410,21 @@ def _install_rancher(context: KubernetesDeployContext, control_config) -> bool:
             else:
                 logger.error("Failed to add Helm repo after %d attempts: %s", max_repo_retries, repo_output)
                 return False
-        # Install Rancher with retry logic
+        # Install Rancher (use upgrade --install to handle both new installs and upgrades)
         control_hostname = control_config.hostname
         # Use NodePort with fixed port from config, or default to 30443
         rancher_node_port = cfg.services.rancher.port or 30443
+        # Verify API is reachable before installation
+        verify_cmd = "export KUBECONFIG=/etc/rancher/k3s/k3s.yaml && /usr/local/bin/kubectl cluster-info 2>&1"
+        verify_output, verify_exit = pct_service.execute(str(control_id), verify_cmd, timeout=30)
+        if verify_exit != 0 or not verify_output or "is running at" not in verify_output:
+            logger.error("API server not reachable before Rancher installation")
+            if verify_output:
+                logger.error("API check output: %s", verify_output[-500:])
+            return False
+        # Use helm upgrade --install which handles both install and upgrade cases
         install_rancher_cmd = (
-            f"export PATH=/usr/local/bin:$PATH && helm install rancher rancher-stable/rancher "
+            f"export PATH=/usr/local/bin:$PATH && helm upgrade --install rancher rancher-stable/rancher "
             f"--namespace cattle-system "
             f"--set hostname={control_hostname} "
             f"--set replicas=1 "
@@ -425,64 +434,39 @@ def _install_rancher(context: KubernetesDeployContext, control_config) -> bool:
             f"--set service.ports.https=443 "
             f"--set service.nodePorts.https={rancher_node_port}"
         )
-        max_install_retries = 5
-        for install_retry in range(max_install_retries):
-            # Verify API is reachable before each attempt
-            verify_cmd = "export KUBECONFIG=/etc/rancher/k3s/k3s.yaml && /usr/local/bin/kubectl cluster-info 2>&1"
-            verify_output, verify_exit = pct_service.execute(str(control_id), verify_cmd, timeout=30)
-            if verify_exit != 0 or not verify_output or "is running at" not in verify_output:
-                logger.error("API server not reachable before Rancher install attempt %d/%d, waiting 10 seconds...", install_retry + 1, max_install_retries)
-                # Check k3s service status
-                k3s_status_cmd = "systemctl status k3s --no-pager -l 2>&1 | head -30"
-                k3s_status, _ = pct_service.execute(str(control_id), k3s_status_cmd, timeout=10)
-                if k3s_status:
-                    logger.error("k3s service status: %s", k3s_status)
-                time.sleep(10)
-                continue
-            install_output, install_exit = pct_service.execute(str(control_id), install_rancher_cmd, timeout=600)
-            if install_exit == 0:
-                logger.info("Rancher installed successfully")
-                # Patch the service to set the correct NodePort (Helm chart doesn't always respect nodePorts setting)
-                logger.info("Setting Rancher service NodePort to %s...", rancher_node_port)
-                # Get current http nodePort to preserve it
-                get_http_port_cmd = "kubectl get svc rancher -n cattle-system -o jsonpath='{.spec.ports[?(@.name==\"http\")].nodePort}'"
-                http_port_output, _ = pct_service.execute(str(control_id), get_http_port_cmd, timeout=10)
-                http_node_port = http_port_output.strip() if http_port_output else "30625"
-                patch_cmd = (
-                    f"kubectl patch svc rancher -n cattle-system -p "
-                    f"'{{\"spec\":{{\"ports\":[{{\"name\":\"http\",\"port\":80,\"protocol\":\"TCP\",\"targetPort\":80,\"nodePort\":{http_node_port}}},"
-                    f"{{\"name\":\"https\",\"port\":443,\"protocol\":\"TCP\",\"targetPort\":443,\"nodePort\":{rancher_node_port}}}]}}}}'"
-                )
-                patch_output, patch_exit = pct_service.execute(str(control_id), patch_cmd, timeout=30)
-                if patch_exit == 0:
-                    logger.info("Rancher service NodePort set to %s", rancher_node_port)
-                else:
-                    logger.warning("Failed to patch Rancher service NodePort: %s", patch_output)
-                return True
-            if install_retry < max_install_retries - 1:
-                logger.error("Rancher installation failed (attempt %d/%d), retrying in 15 seconds...", install_retry + 1, max_install_retries)
-                if install_output:
-                    logger.error("Error output: %s", install_output[-500:])
-                # Check k3s service status on failure
-                k3s_status_cmd = "systemctl status k3s --no-pager -l 2>&1 | head -30"
-                k3s_status, _ = pct_service.execute(str(control_id), k3s_status_cmd, timeout=10)
-                if k3s_status:
-                    logger.error("k3s service status: %s", k3s_status)
-                time.sleep(15)
+        install_output, install_exit = pct_service.execute(str(control_id), install_rancher_cmd, timeout=600)
+        if install_exit == 0:
+            logger.info("Rancher installed successfully")
+            # Patch the service to set the correct NodePort (Helm chart doesn't always respect nodePorts setting)
+            logger.info("Setting Rancher service NodePort to %s...", rancher_node_port)
+            # Get current http nodePort to preserve it
+            get_http_port_cmd = "kubectl get svc rancher -n cattle-system -o jsonpath='{.spec.ports[?(@.name==\"http\")].nodePort}'"
+            http_port_output, _ = pct_service.execute(str(control_id), get_http_port_cmd, timeout=10)
+            http_node_port = http_port_output.strip() if http_port_output else "30625"
+            patch_cmd = (
+                f"kubectl patch svc rancher -n cattle-system -p "
+                f"'{{\"spec\":{{\"ports\":[{{\"name\":\"http\",\"port\":80,\"protocol\":\"TCP\",\"targetPort\":80,\"nodePort\":{http_node_port}}},"
+                f"{{\"name\":\"https\",\"port\":443,\"protocol\":\"TCP\",\"targetPort\":443,\"nodePort\":{rancher_node_port}}}]}}}}'"
+            )
+            patch_output, patch_exit = pct_service.execute(str(control_id), patch_cmd, timeout=30)
+            if patch_exit == 0:
+                logger.info("Rancher service NodePort set to %s", rancher_node_port)
             else:
-                logger.error("Failed to install Rancher after %d attempts: %s", max_install_retries, install_output)
-                # Final check of k3s service status
-                k3s_status_cmd = "systemctl status k3s --no-pager -l 2>&1 | head -50"
-                k3s_status, _ = pct_service.execute(str(control_id), k3s_status_cmd, timeout=10)
-                if k3s_status:
-                    logger.error("k3s service status: %s", k3s_status)
-                # Check k3s logs
-                k3s_logs_cmd = "journalctl -u k3s --no-pager -n 50 2>&1"
-                k3s_logs, _ = pct_service.execute(str(control_id), k3s_logs_cmd, timeout=10)
-                if k3s_logs:
-                    logger.error("k3s service logs: %s", k3s_logs)
-                return False
-        return False
+                logger.warning("Failed to patch Rancher service NodePort: %s", patch_output)
+            return True
+        else:
+            logger.error("Rancher installation failed: %s", install_output[-1000:] if install_output else "No output")
+            # Check k3s service status on failure
+            k3s_status_cmd = "systemctl status k3s --no-pager -l 2>&1 | head -50"
+            k3s_status, _ = pct_service.execute(str(control_id), k3s_status_cmd, timeout=10)
+            if k3s_status:
+                logger.error("k3s service status: %s", k3s_status)
+            # Check k3s logs
+            k3s_logs_cmd = "journalctl -u k3s --no-pager -n 50 2>&1"
+            k3s_logs, _ = pct_service.execute(str(control_id), k3s_logs_cmd, timeout=10)
+            if k3s_logs:
+                logger.error("k3s service logs: %s", k3s_logs)
+            return False
     finally:
         lxc_service.disconnect()
 

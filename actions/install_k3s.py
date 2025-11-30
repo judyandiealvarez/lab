@@ -292,6 +292,64 @@ WantedBy=sysinit.target
                         # Wait for k3s to start
                         import time
                         time.sleep(5)
+            # Configure containerd to disable AppArmor (LXC workaround)
+            # k3s uses config.toml.tmpl which gets merged with defaults
+            # We need to add ApparmorProfile to the runc options without breaking the config
+            logger.info("Configuring containerd to disable AppArmor for pods (LXC workaround)...")
+            containerd_config_dir = "/var/lib/rancher/k3s/agent/etc/containerd"
+            containerd_config_file = f"{containerd_config_dir}/config.toml.tmpl"
+            # Wait for k3s to generate default config first
+            if is_control:
+                max_wait = 30
+                wait_time = 0
+                while wait_time < max_wait:
+                    check_cmd = f"test -f {containerd_config_dir}/config.toml && echo exists || echo missing"
+                    check_output, _ = self.ssh_service.execute(check_cmd, sudo=True)
+                    if "exists" in check_output:
+                        break
+                    time.sleep(2)
+                    wait_time += 2
+            # Create config directory
+            mkdir_cmd = f"mkdir -p {containerd_config_dir}"
+            self.ssh_service.execute(mkdir_cmd, sudo=True)
+            # Check if template exists and if ApparmorProfile is already set
+            check_tmpl_cmd = f"test -f {containerd_config_file} && echo exists || echo missing"
+            tmpl_exists, _ = self.ssh_service.execute(check_tmpl_cmd, sudo=True)
+            if "exists" in tmpl_exists:
+                # Template exists - check if ApparmorProfile is set
+                check_apparmor_cmd = f"grep -q 'ApparmorProfile' {containerd_config_file} && echo set || echo not_set"
+                apparmor_status, _ = self.ssh_service.execute(check_apparmor_cmd, sudo=True)
+                if "not_set" in apparmor_status:
+                    # Add ApparmorProfile after SystemdCgroup in the runc.options section
+                    # Need to ensure we're in the right section
+                    sed_cmd = f"sed -i '/SystemdCgroup = true/a\\    ApparmorProfile = \"\"' {containerd_config_file}"
+                    self.ssh_service.execute(sed_cmd, sudo=True)
+                    logger.info("Added ApparmorProfile = \"\" to containerd config template")
+            else:
+                # Template doesn't exist - create override with all required settings
+                # k3s will merge this with defaults, but we need to include SystemdCgroup
+                apparmor_override = """[plugins."io.containerd.cri.v1.runtime".containerd.runtimes.runc]
+  runtime_type = "io.containerd.runc.v2"
+  [plugins."io.containerd.cri.v1.runtime".containerd.runtimes.runc.options]
+    SystemdCgroup = true
+    ApparmorProfile = ""
+"""
+                write_cmd = f"cat > {containerd_config_file} << 'EOFCONFIG'\n{apparmor_override}EOFCONFIG"
+                self.ssh_service.execute(write_cmd, sudo=True)
+                logger.info("Created containerd config template with ApparmorProfile = \"\"")
+            # Restart k3s to apply config (only if already running)
+            if is_control:
+                check_k3s_cmd = "systemctl is-active k3s 2>&1 || echo inactive"
+                k3s_status, _ = self.ssh_service.execute(check_k3s_cmd, sudo=True)
+                if k3s_status and "active" in k3s_status:
+                    logger.info("Restarting k3s to apply containerd AppArmor configuration...")
+                    restart_cmd = "systemctl restart k3s"
+                    restart_output, restart_exit = self.ssh_service.execute(restart_cmd, sudo=True, timeout=60)
+                    if restart_exit is not None and restart_exit != 0:
+                        logger.warning("k3s restart had issues: %s", restart_output[-200:] if restart_output else "No output")
+                    else:
+                        logger.info("k3s restarted with containerd AppArmor configuration")
+                        time.sleep(5)
         
         return True
 

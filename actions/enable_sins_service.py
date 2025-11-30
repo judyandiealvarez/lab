@@ -28,13 +28,13 @@ class EnableSinsServiceAction(Action):
             status_output, _ = self.ssh_service.execute(status_cmd, sudo=True)
             if "activating (auto-restart)" in status_output or "auto-restart" in status_output:
                 # Check if the error is PostgreSQL connection failure
-                journal_cmd = "journalctl -u sins.service -n 10 --no-pager | grep -i 'postgres\|connection refused' || true"
+                journal_cmd = "journalctl -u sins.service -n 10 --no-pager | grep -i 'postgres\\|connection refused' || true"
                 journal_output, _ = self.ssh_service.execute(journal_cmd, sudo=True)
                 if "postgres" in journal_output.lower() or "connection refused" in journal_output.lower():
                     logger.warning("SiNS service is restarting due to PostgreSQL connection failure. This is expected if PostgreSQL is not yet available. Service will retry automatically.")
                     return True
                 # Check if the error is port 53 already in use
-                journal_cmd = "journalctl -u sins.service -n 10 --no-pager | grep -i 'address already in use\|port.*53' || true"
+                journal_cmd = "journalctl -u sins.service -n 10 --no-pager | grep -i 'address already in use\\|port.*53' || true"
                 journal_output, _ = self.ssh_service.execute(journal_cmd, sudo=True)
                 if "address already in use" in journal_output.lower() or "port" in journal_output.lower():
                     logger.error("SiNS service cannot bind to port 53 - port is already in use. Ensure systemd-resolved is disabled.")
@@ -75,7 +75,8 @@ class EnableSinsServiceAction(Action):
                 logger.error("SiNS service cannot bind to port 53 - port is already in use. Ensure systemd-resolved is disabled.")
                 return False
         # Check if process is running even if systemd says inactive
-        process_check_cmd = "pgrep -f sins.dll >/dev/null && echo running || echo not_running"
+        # Check for both sins.dll (.NET) and sins (native binary)
+        process_check_cmd = "pgrep -f 'sins\\.dll|^sins ' >/dev/null && echo running || echo not_running"
         process_output, _ = self.ssh_service.execute(process_check_cmd, sudo=True)
         if "running" in process_output:
             logger.info("SiNS process is running despite inactive systemd status")

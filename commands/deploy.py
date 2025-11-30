@@ -503,7 +503,7 @@ class Deploy(Command):
             step_num += 1
             for action in (getattr(c, "actions", None) or []):
                 steps.append((step_num, f"{c.name}: {action}"))
-                step_num += 1
+            step_num += 1
         # Add kubernetes setup step
         if kubernetes_containers:
             steps.append((step_num, "kubernetes: setup kubernetes"))
@@ -688,7 +688,7 @@ class Deploy(Command):
                     ssh_service.disconnect()
             finally:
                 lxc_service.disconnect()
-            plan.step += 1
+        plan.step += 1
 
     def _setup_gluster_stage(self, plan: "Deploy"):
         logger.info("[%s/%s] Setting up GlusterFS distributed storage...", plan.step, plan.total_steps)
@@ -767,9 +767,9 @@ class Deploy(Command):
                     glusterfs_node = glusterfs_nodes[0]  # Use first GlusterFS node
             if glusterfs_node:
                 result, _ = self.lxc_service.execute(f"nc -zv {glusterfs_node.ip_address} 24007 2>&1")
-                if result and ("open" in result.lower() or "succeeded" in result.lower()):
+            if result and ("open" in result.lower() or "succeeded" in result.lower()):
                     logger.info("  ✓ GlusterFS: %s:24007", glusterfs_node.ip_address)
-                else:
+            else:
                     logger.error("  ✗ GlusterFS: %s:24007 - NOT RESPONDING", glusterfs_node.ip_address)
                     failed_ports.append(("GlusterFS", glusterfs_node.ip_address, 24007))
         return failed_ports

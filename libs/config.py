@@ -228,7 +228,7 @@ class LabConfig:  # pylint: disable=too-many-instance-attributes
                     privileged=tmpl.get("privileged"),
                     nested=tmpl.get("nested"),
                 )
-            )
+        )
         # Parse kubernetes (optional)
         kubernetes = None
         if "kubernetes" in data:
