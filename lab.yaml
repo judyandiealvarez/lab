@@ -18,7 +18,7 @@ templates:
       rootfs_size: 20
     actions:
       - apt cache proxy configuration
-      - AppArmor parser stub
+#      - AppArmor parser stub
       - apt sources fix
       - system upgrade
       - openssh-server installation

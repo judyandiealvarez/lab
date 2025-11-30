@@ -322,6 +322,70 @@ def _install_rancher(context: KubernetesDeployContext, control_config) -> bool:
                 if verify_output:
                     logger.error("API check output: %s", verify_output)
                 return False
+        # Wait for CNI to be ready before installing cert-manager
+        # k3s embeds Flannel (doesn't run as pods) - check that CNI is actually working
+        logger.info("Waiting for CNI plugin (Flannel) to be ready...")
+        max_cni_wait = 120
+        cni_wait_time = 0
+        cni_ready = False
+        while cni_wait_time < max_cni_wait:
+            # Check 1: Nodes must be Ready (not NotReady)
+            nodes_cmd = "kubectl get nodes -o jsonpath='{.items[*].status.conditions[?(@.type==\"Ready\")].status}' 2>&1"
+            nodes_output, nodes_exit = pct_service.execute(str(control_id), nodes_cmd, timeout=30)
+            nodes_ready = nodes_exit == 0 and nodes_output and "True" in nodes_output and "False" not in nodes_output
+            
+            # Check 2: CNI config file exists (k3s embeds Flannel, doesn't use pods)
+            cni_config_cmd = "test -f /var/lib/rancher/k3s/agent/etc/cni/net.d/10-flannel.conflist && echo exists || echo missing"
+            cni_config_output, cni_config_exit = pct_service.execute(str(control_id), cni_config_cmd, timeout=10)
+            cni_config_exists = cni_config_exit == 0 and cni_config_output and "exists" in cni_config_output
+            
+            # Check 3: Flannel subnet.env exists (indicates Flannel backend is running)
+            flannel_subnet_cmd = "test -f /run/flannel/subnet.env && echo exists || echo missing"
+            flannel_subnet_output, flannel_subnet_exit = pct_service.execute(str(control_id), flannel_subnet_cmd, timeout=10)
+            flannel_subnet_exists = flannel_subnet_exit == 0 and flannel_subnet_output and "exists" in flannel_subnet_output
+            
+            # Check 4: System pods are actually running (not stuck in Pending due to CNI errors)
+            pending_cni_cmd = "kubectl get pods -n kube-system --field-selector=status.phase=Pending -o jsonpath='{.items[*].status.conditions[?(@.type==\"PodScheduled\")].message}' 2>&1 | grep -q 'network is not ready' && echo cni_error || echo no_cni_error"
+            pending_cni_output, pending_cni_exit = pct_service.execute(str(control_id), pending_cni_cmd, timeout=30)
+            no_cni_errors = pending_cni_exit == 0 and pending_cni_output and "no_cni_error" in pending_cni_output
+            
+            # Check 5: At least some system pods are Running (CNI is working)
+            running_pods_cmd = "kubectl get pods -n kube-system --field-selector=status.phase=Running --no-headers 2>&1 | wc -l"
+            running_pods_output, running_pods_exit = pct_service.execute(str(control_id), running_pods_cmd, timeout=30)
+            pods_running = False
+            if running_pods_exit == 0 and running_pods_output:
+                try:
+                    running_count = int(running_pods_output.strip())
+                    pods_running = running_count >= 3  # At least 3 system pods should be running
+                except ValueError:
+                    pass
+            
+            if nodes_ready and cni_config_exists and flannel_subnet_exists and no_cni_errors and pods_running:
+                logger.info("CNI plugin (Flannel) is ready - nodes Ready, CNI config exists, Flannel subnet exists, system pods running")
+                cni_ready = True
+                break
+            
+            if cni_wait_time % 20 == 0:
+                logger.info("Waiting for CNI plugin to be ready (waited %d/%d seconds)...", cni_wait_time, max_cni_wait)
+                if nodes_output:
+                    logger.info("Nodes Ready: %s, CNI config: %s, Flannel subnet: %s, Running pods: %s", 
+                              "True" if nodes_ready else "False",
+                              "exists" if cni_config_exists else "missing",
+                              "exists" if flannel_subnet_exists else "missing",
+                              running_pods_output.strip() if running_pods_output else "unknown")
+            
+            time.sleep(5)
+            cni_wait_time += 5
+        
+        if not cni_ready:
+            logger.error("CNI plugin (Flannel) not ready after %d seconds - cannot proceed with cert-manager installation", max_cni_wait)
+            logger.error("Nodes Ready: %s, CNI config: %s, Flannel subnet: %s, Running pods: %s",
+                        "True" if nodes_ready else "False",
+                        "exists" if cni_config_exists else "missing", 
+                        "exists" if flannel_subnet_exists else "missing",
+                        running_pods_output.strip() if running_pods_output else "unknown")
+            return False
+        
         # Create namespace for Rancher (kubectl should use /root/.kube/config automatically)
         namespace_cmd = "kubectl create namespace cattle-system --dry-run=client -o yaml | kubectl apply -f -"
         pct_service.execute(str(control_id), namespace_cmd)
@@ -352,9 +416,37 @@ def _install_rancher(context: KubernetesDeployContext, control_config) -> bool:
             else:
                 logger.error("Failed to install cert-manager after %d attempts: %s", max_retries, cert_manager_output)
                 return False
-        # Wait for cert-manager to be ready
-        logger.info("Waiting for cert-manager to be ready...")
-        time.sleep(30)
+        # Wait for cert-manager webhook to be ready - REQUIRED for Rancher installation
+        logger.info("Waiting for cert-manager webhook to be ready...")
+        max_webhook_wait = 300
+        webhook_wait_time = 0
+        webhook_ready = False
+        while webhook_wait_time < max_webhook_wait:
+            # Check if cert-manager webhook pods are ready
+            webhook_check_cmd = "kubectl get pods -n cert-manager -l app.kubernetes.io/component=webhook -o jsonpath='{.items[*].status.conditions[?(@.type==\"Ready\")].status}' 2>&1"
+            webhook_output, webhook_exit = pct_service.execute(str(control_id), webhook_check_cmd, timeout=30)
+            if webhook_exit == 0 and webhook_output:
+                # Check if all webhook pods are Ready
+                ready_count = webhook_output.count("True")
+                if ready_count > 0:
+                    # Also verify the webhook service has endpoints (critical - without endpoints, webhook calls fail)
+                    endpoints_cmd = "kubectl get endpoints cert-manager-webhook -n cert-manager -o jsonpath='{.subsets[*].addresses[*].ip}' 2>&1"
+                    endpoints_output, endpoints_exit = pct_service.execute(str(control_id), endpoints_cmd, timeout=30)
+                    if endpoints_exit == 0 and endpoints_output and endpoints_output.strip():
+                        logger.info("cert-manager webhook is ready with %d pod(s) and endpoints available", ready_count)
+                        webhook_ready = True
+                        break
+            if webhook_wait_time % 30 == 0:
+                logger.info("Waiting for cert-manager webhook to be ready (waited %d/%d seconds)...", webhook_wait_time, max_webhook_wait)
+                if webhook_output:
+                    logger.info("Webhook pods status: %s", webhook_output[:200])
+            time.sleep(10)
+            webhook_wait_time += 10
+        
+        if not webhook_ready:
+            logger.error("cert-manager webhook not ready after %d seconds - cannot proceed with Rancher installation", max_webhook_wait)
+            logger.error("Rancher installation will fail with 'no endpoints available for service cert-manager-webhook'")
+            return False
         # Verify Kubernetes API is reachable
         logger.info("Verifying Kubernetes API is reachable...")
         verify_api_cmd = "kubectl cluster-info"
