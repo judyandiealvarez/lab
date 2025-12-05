@@ -26,6 +26,9 @@ class ContainerConfig:  # pylint: disable=too-many-instance-attributes
     ip_address: Optional[str] = None  # Full IP, computed later
     privileged: Optional[bool] = None
     nested: Optional[bool] = None
+    # Whether container should start automatically on Proxmox boot
+    # If None, defaults to True in code
+    autostart: Optional[bool] = None
 @dataclass
 
 class TemplateConfig:  # pylint: disable=too-many-instance-attributes
@@ -160,6 +163,23 @@ class TimeoutsConfig:
     ubuntu_template: int
 
 @dataclass
+class BackupItemConfig:
+    """Single backup item configuration"""
+    name: str
+    source_container_id: int
+    source_path: str
+    archive_base: Optional[str] = None
+    archive_path: Optional[str] = None
+
+@dataclass
+class BackupConfig:
+    """Backup configuration"""
+    container_id: int
+    backup_dir: str
+    name_prefix: str
+    items: List[BackupItemConfig]
+
+@dataclass
 class LabConfig:  # pylint: disable=too-many-instance-attributes
     """Main lab configuration class"""
     network: str
@@ -174,8 +194,11 @@ class LabConfig:  # pylint: disable=too-many-instance-attributes
     ssh: SSHConfig
     waits: WaitsConfig
     timeouts: TimeoutsConfig
+    id_base: int = 3000
+    postgres_host: Optional[str] = None
     glusterfs: Optional[GlusterFSConfig] = None
     kubernetes: Optional[KubernetesConfig] = None
+    backup: Optional[BackupConfig] = None
     apt_cache_ct: str = "apt-cache"
     # Computed fields
     network_base: Optional[str] = None
@@ -184,8 +207,21 @@ class LabConfig:  # pylint: disable=too-many-instance-attributes
     kubernetes_workers: List[ContainerConfig] = field(default_factory=list)
     @classmethod
 
-    def from_dict(cls, data: Dict[str, Any], verbose: bool = False) -> "LabConfig":  # pylint: disable=too-many-locals
+    def from_dict(cls, data: Dict[str, Any], verbose: bool = False, environment: Optional[str] = None) -> "LabConfig":  # pylint: disable=too-many-locals
         """Create LabConfig from dictionary (loaded from YAML)"""
+        # Get environment-specific values if environments section exists
+        env_data = None
+        if "environments" in data and environment:
+            if environment not in data["environments"]:
+                raise ValueError(f"Environment '{environment}' not found in configuration. Available: {list(data['environments'].keys())}")
+            env_data = data["environments"][environment]
+        
+        # Get ID base from environment or fallback to top-level or default
+        if env_data and "id-base" in env_data:
+            id_base = env_data["id-base"]
+        else:
+            id_base = data.get("id-base", 3000)
+        
         # Helper to create ContainerResources from dict
         def make_resources(res_dict: Optional[Dict]) -> Optional[ContainerResources]:
             if not res_dict:
@@ -202,7 +238,7 @@ class LabConfig:  # pylint: disable=too-many-instance-attributes
             containers.append(
                 ContainerConfig(
                     name=ct["name"],
-                    id=ct["id"],
+                    id=ct["id"] + id_base,
                     ip=ct["ip"],
                     hostname=ct["hostname"],
                     template=ct.get("template"),
@@ -211,6 +247,7 @@ class LabConfig:  # pylint: disable=too-many-instance-attributes
                     actions=ct.get("actions", []),
                     privileged=ct.get("privileged"),
                     nested=ct.get("nested"),
+                    autostart=ct.get("autostart", True),
                 )
             )
         # Parse templates
@@ -219,7 +256,7 @@ class LabConfig:  # pylint: disable=too-many-instance-attributes
             templates.append(
                 TemplateConfig(
                     name=tmpl["name"],
-                    id=tmpl["id"],
+                    id=tmpl["id"] + id_base,
                     ip=tmpl["ip"],
                     hostname=tmpl["hostname"],
                     template=tmpl.get("template"),
@@ -234,11 +271,16 @@ class LabConfig:  # pylint: disable=too-many-instance-attributes
         if "kubernetes" in data:
             k8s_data = data["kubernetes"]
             kubernetes = KubernetesConfig(
-                control=[c["id"] if isinstance(c, dict) else c for c in k8s_data.get("control", [])],
-                workers=[w["id"] if isinstance(w, dict) else w for w in k8s_data.get("workers", [])],
+                control=[(c["id"] if isinstance(c, dict) else c) + id_base for c in k8s_data.get("control", [])],
+                workers=[(w["id"] if isinstance(w, dict) else w) + id_base for w in k8s_data.get("workers", [])],
             )
-        # Parse proxmox
-        proxmox_data = data["proxmox"]
+        # Parse proxmox - use environment-specific if available, otherwise fallback to top-level
+        if env_data and "proxmox" in env_data:
+            proxmox_data = env_data["proxmox"]
+        elif "proxmox" in data:
+            proxmox_data = data["proxmox"]
+        else:
+            raise ValueError("Proxmox configuration not found in environment or top-level config")
         proxmox = ProxmoxConfig(
             host=proxmox_data["host"],
             storage=proxmox_data["storage"],
@@ -302,9 +344,13 @@ class LabConfig:  # pylint: disable=too-many-instance-attributes
                 sudo_group=users_data.get("sudo_group", "sudo")
             )]
         users = UsersConfig(users=user_list)
-        # Parse DNS
+        # Parse DNS - add environment-specific DNS server if provided
         dns_data = data["dns"]
-        dns = DNSConfig(servers=dns_data["servers"])
+        dns_servers = list(dns_data["servers"])  # Copy the list
+        # If environment-specific DNS server is provided, add it to the list
+        if env_data and "dns_server" in env_data:
+            dns_servers.append(env_data["dns_server"])
+        dns = DNSConfig(servers=dns_servers)
         # Parse Docker
         docker_data = data["docker"]
         docker = DockerConfig(
@@ -347,15 +393,51 @@ class LabConfig:  # pylint: disable=too-many-instance-attributes
         glusterfs = None
         if "glusterfs" in data:
             glusterfs_data = data["glusterfs"]
+            cluster_nodes = None
+            if glusterfs_data.get("cluster_nodes"):
+                cluster_nodes = [
+                    {"id": (node["id"] if isinstance(node, dict) else node) + id_base}
+                    for node in glusterfs_data["cluster_nodes"]
+                ]
             glusterfs = GlusterFSConfig(
                 volume_name=glusterfs_data.get("volume_name", "swarm-storage"),
                 brick_path=glusterfs_data.get("brick_path", "/gluster/brick"),
                 mount_point=glusterfs_data.get("mount_point", "/mnt/gluster"),
                 replica_count=glusterfs_data.get("replica_count", 2),
-                cluster_nodes=glusterfs_data.get("cluster_nodes"),
+                cluster_nodes=cluster_nodes,
             )
+        # Parse Backup (optional)
+        backup = None
+        if "backup" in data:
+            backup_data = data["backup"]
+            items = []
+            for item_data in backup_data.get("items", []):
+                items.append(BackupItemConfig(
+                    name=item_data["name"],
+                    source_container_id=item_data["source_container_id"] + id_base,
+                    source_path=item_data["source_path"],
+                    archive_base=item_data.get("archive_base"),
+                    archive_path=item_data.get("archive_path"),
+                ))
+            backup = BackupConfig(
+                container_id=backup_data["container_id"] + id_base,
+                backup_dir=backup_data.get("backup_dir", "/backup"),
+                name_prefix=backup_data.get("name_prefix", "backup"),
+                items=items,
+            )
+        # Get network from environment or fallback to top-level
+        if env_data and "network" in env_data:
+            network = env_data["network"]
+        else:
+            network = data.get("network", "10.11.3.0/24")
+        
+        # Get postgres_host from environment or fallback to None
+        postgres_host = None
+        if env_data and "postgres_host" in env_data:
+            postgres_host = env_data["postgres_host"]
+        
         return cls(
-            network=data["network"],
+            network=network,
             proxmox=proxmox,
             containers=containers,
             templates=templates,
@@ -368,7 +450,10 @@ class LabConfig:  # pylint: disable=too-many-instance-attributes
             ssh=ssh,
             waits=waits,
             timeouts=timeouts,
+            id_base=id_base,
+            postgres_host=postgres_host,
             glusterfs=glusterfs,
+            backup=backup,
             apt_cache_ct=data.get("apt-cache-ct", "apt-cache"),
         )
 

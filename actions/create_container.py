@@ -53,9 +53,7 @@ class CreateContainerAction(Action):
             # Validate template file exists and is readable
             if not template_service.validate_template(template_path):
                 logger.error("Template file %s is missing or not readable", template_path)
-                base_template = template_service.get_base_template(self.cfg)
-                template_path = f"{self.cfg.proxmox_template_dir}/{base_template}"
-                logger.warning("Falling back to base template: %s", template_path)
+                raise RuntimeError(f"Template file {template_path} is missing or not readable")
 
             # Determine if container should be privileged from config (default to False if not specified)
             should_be_privileged = self.container_cfg.privileged if self.container_cfg.privileged is not None else False
@@ -138,6 +136,20 @@ class CreateContainerAction(Action):
             output, exit_code = pct_service.set_features(container_id, nesting=should_be_nested, keyctl=True, fuse=True)
             if exit_code is not None and exit_code != 0:
                 logger.warning("Failed to set container features: %s", output)
+
+            # Configure autostart (onboot) based on container config (default: True)
+            autostart = True
+            if hasattr(self.container_cfg, "autostart") and self.container_cfg.autostart is not None:
+                autostart = bool(self.container_cfg.autostart)
+            logger.info(
+                "Setting autostart for container %s (onboot=%s)...",
+                container_id,
+                "1" if autostart else "0",
+            )
+            output, exit_code = pct_service.set_onboot(container_id, autostart)
+            if exit_code is not None and exit_code != 0:
+                logger.error("Failed to set autostart (onboot) for container %s: %s", container_id, output)
+                return False
 
             # Configure /dev/kmsg mount for k3s containers (required for k3s to work in LXC)
             # Check if this container needs k3s by checking actions or kubernetes config

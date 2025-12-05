@@ -1,13 +1,47 @@
 # Lab CLI Configuration
-# Network configuration
-network: "10.11.3.0/24"
+
+# Environments configuration
+environments:
+  prod:
+    id-base: 2000
+    network: "10.11.2.0/24"
+    postgres_host: "10.11.2.18"
+    dns_server: "10.11.2.5"
+    proxmox:
+      host: "root@10.11.2.4"
+      storage: "sdb"
+      bridge: "vmbr0"
+      template_dir: "/var/lib/vz/template/cache"
+      gateway_octet: 253  # Last octet of gateway IP
+  test:
+    id-base: 3000
+    network: "10.11.3.0/24"
+    postgres_host: "10.11.3.18"
+    dns_server: "10.11.3.5"
+    proxmox:
+      host: "root@10.11.3.4"
+      storage: "sdb"
+      bridge: "vmbr0"
+      template_dir: "/var/lib/vz/template/cache"
+      gateway_octet: 253  # Last octet of gateway IP
+  dev:
+    id-base: 4000
+    network: "10.11.4.0/24"
+    postgres_host: "10.11.4.18"
+    dns_server: "10.11.4.5"
+    proxmox:
+      host: "root@10.11.4.4"
+      storage: "sdb"
+      bridge: "vmbr0"
+      template_dir: "/var/lib/vz/template/cache"
+      gateway_octet: 253  # Last octet of gateway IP
 
 apt-cache-ct: apt-cache 
 
 # Template generation configuration
 templates:
   - name: ubuntu-tmpl
-    id: 3010
+    id: 10
     ip: 10  # Last octet only
     hostname: "ubuntu-tmpl"
     template: base
@@ -28,9 +62,10 @@ templates:
       - template archive creation
 ct:
   - name: apt-cache
-    id: 3020
+    id: 20
     ip: 20  # Last octet only
     hostname: "apt-cache"
+    autostart: true
     template: ubuntu-tmpl
     resources:
       memory: 2048
@@ -46,9 +81,10 @@ ct:
       - apt-cacher-ng port configuration
       - apt-cacher-ng service enablement
   - name: pgsql
-    id: 3018
+    id: 18
     ip: 18  # Last octet only
     hostname: "pgsql"
+    autostart: true
     template: ubuntu-tmpl
     resources:
       memory: 2048
@@ -66,9 +102,10 @@ ct:
       - postgresql files configuration
       - postgresql password setup
   - name: haproxy
-    id: 3017
+    id: 17
     ip: 17  # Last octet only
     hostname: "haproxy"
+    autostart: true
     template: ubuntu-tmpl
     resources:
       memory: 1024
@@ -86,9 +123,10 @@ ct:
       - haproxy systemd override
       - haproxy service enablement
   - name: dns
-    id: 3019
+    id: 19
     ip: 19  # Last octet only
     hostname: "dns"
+    autostart: true
     template: ubuntu-tmpl
     privileged: true
     nested: true
@@ -100,7 +138,6 @@ ct:
     params:
       dns_port: 53
       web_port: 80
-      postgres_host: "10.11.3.18"
       postgres_port: 5432
       postgres_db: "dns_server"
       postgres_user: "postgres"
@@ -113,9 +150,10 @@ ct:
       - sins dns service configuration
       - sins dns service enablement
   - name: k3s-control
-    id: 3011
+    id: 11
     ip: 11  # Last octet only
     hostname: "k3s-control"
+    autostart: true
     template: ubuntu-tmpl
     privileged: true
     nested: true
@@ -131,9 +169,10 @@ ct:
       - lxc sysctl access configuration
       - k3s installation
   - name: k3s-worker-1
-    id: 3012
+    id: 12
     ip: 12  # Last octet only
     hostname: "k3s-worker-1"
+    autostart: true
     template: ubuntu-tmpl
     privileged: true
     nested: true
@@ -147,9 +186,10 @@ ct:
       - lxc sysctl access configuration
       - k3s installation
   - name: k3s-worker-2
-    id: 3013
+    id: 13
     ip: 13  # Last octet only
     hostname: "k3s-worker-2"
+    autostart: true
     template: ubuntu-tmpl
     privileged: true
     nested: true
@@ -163,9 +203,10 @@ ct:
       - lxc sysctl access configuration
       - k3s installation
   - name: k3s-worker-3
-    id: 3014
+    id: 14
     ip: 14  # Last octet only
     hostname: "k3s-worker-3"
+    autostart: true
     template: ubuntu-tmpl
     privileged: true
     nested: true
@@ -179,9 +220,10 @@ ct:
       - lxc sysctl access configuration
       - k3s installation
   - name: glusterfs-node-1
-    id: 3021
+    id: 21
     ip: 21  # Last octet only
     hostname: "glusterfs-node-1"
+    autostart: true
     template: ubuntu-tmpl
     privileged: true
     nested: true
@@ -194,9 +236,10 @@ ct:
       - cloud-init wait
       - glusterfs server installation
   - name: glusterfs-node-2
-    id: 3022
+    id: 22
     ip: 22  # Last octet only
     hostname: "glusterfs-node-2"
+    autostart: true
     template: ubuntu-tmpl
     privileged: true
     nested: true
@@ -209,9 +252,10 @@ ct:
       - cloud-init wait
       - glusterfs server installation
   - name: glusterfs-node-3
-    id: 3023
+    id: 23
     ip: 23  # Last octet only
     hostname: "glusterfs-node-3"
+    autostart: true
     template: ubuntu-tmpl
     privileged: true
     nested: true
@@ -223,27 +267,36 @@ ct:
     actions:
       - cloud-init wait
       - glusterfs server installation
+  - name: backup
+    id: 24
+    ip: 24  # Last octet only
+    hostname: "backup"
+    autostart: true
+    template: ubuntu-tmpl
+    resources:
+      memory: 2048
+      swap: 2048
+      cores: 2
+      rootfs_size: 100
+    actions:
+      - cloud-init wait
+      - base tools installation
 
 kubernetes:
   control:
-    - id: 3011
+    - id: 11
   workers:
-    - id: 3012
-    - id: 3013
-    - id: 3014
+    - id: 12
+    - id: 13
+    - id: 14
 
 # Script timeouts (in seconds)
 timeouts:
   apt_cache: 900
   ubuntu_template: 1200
 
-# Proxmox/LXC constants
-proxmox:
-  host: "root@10.11.3.4"
-  storage: "sdb"
-  bridge: "vmbr0"
-  template_dir: "/var/lib/vz/template/cache"
-  gateway_octet: 253  # Last octet of gateway IP
+# Proxmox/LXC constants (deprecated - use environments section)
+# These values are kept for backward compatibility but will be overridden by environment selection
 
 # User configuration
 users:
@@ -273,7 +326,6 @@ dns:
   servers:
     - "8.8.8.8"
     - "8.8.4.4"
-    - "10.11.2.5"
 
 # Docker configuration
 docker:
@@ -315,7 +367,81 @@ glusterfs:
   mount_point: "/mnt/gluster"
   replica_count: 3  # Replicate across 3 GlusterFS nodes
   cluster_nodes:
-    - id: 3021
-    - id: 3022
-    - id: 3023
+    - id: 21
+    - id: 22
+    - id: 23
+
+# Backup configuration
+backup:
+  container_id: 24
+  backup_dir: "/backup"
+  name_prefix: "backup"
+  items:
+    - name: "k3s-control-data"
+      source_container_id: 11
+      source_path: "/var/lib/rancher/k3s"
+      archive_base: "/var/lib/rancher"
+      archive_path: "k3s"
+    - name: "k3s-control-config"
+      source_container_id: 11
+      source_path: "/etc/rancher/k3s"
+      archive_base: "/etc/rancher"
+      archive_path: "k3s"
+    - name: "k3s-worker-1-data"
+      source_container_id: 12
+      source_path: "/var/lib/rancher/k3s"
+      archive_base: "/var/lib/rancher"
+      archive_path: "k3s"
+    - name: "k3s-worker-1-config"
+      source_container_id: 12
+      source_path: "/etc/rancher/node"
+      archive_base: "/etc/rancher"
+      archive_path: "node"
+    - name: "k3s-worker-1-service-env"
+      source_container_id: 12
+      source_path: "/etc/systemd/system/k3s-agent.service.env"
+    - name: "k3s-worker-2-data"
+      source_container_id: 13
+      source_path: "/var/lib/rancher/k3s"
+      archive_base: "/var/lib/rancher"
+      archive_path: "k3s"
+    - name: "k3s-worker-2-config"
+      source_container_id: 13
+      source_path: "/etc/rancher/node"
+      archive_base: "/etc/rancher"
+      archive_path: "node"
+    - name: "k3s-worker-2-service-env"
+      source_container_id: 13
+      source_path: "/etc/systemd/system/k3s-agent.service.env"
+    - name: "k3s-worker-3-data"
+      source_container_id: 14
+      source_path: "/var/lib/rancher/k3s"
+      archive_base: "/var/lib/rancher"
+      archive_path: "k3s"
+    - name: "k3s-worker-3-config"
+      source_container_id: 14
+      source_path: "/etc/rancher/node"
+      archive_base: "/etc/rancher"
+      archive_path: "node"
+    - name: "k3s-worker-3-service-env"
+      source_container_id: 14
+      source_path: "/etc/systemd/system/k3s-agent.service.env"
+    - name: "pgsql-data"
+      source_container_id: 18
+      source_path: "/var/lib/postgresql/data"
+      archive_base: "/var/lib/postgresql"
+      archive_path: "data"
+    - name: "pgsql-config"
+      source_container_id: 18
+      source_path: "/etc/postgresql"
+      archive_base: "/etc"
+      archive_path: "postgresql"
+    - name: "haproxy-config"
+      source_container_id: 17
+      source_path: "/etc/haproxy/haproxy.cfg"
+    - name: "glusterfs-data"
+      source_container_id: 11
+      source_path: "/mnt/gluster"
+      archive_base: "/mnt"
+      archive_path: "gluster"
 

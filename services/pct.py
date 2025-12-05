@@ -130,6 +130,31 @@ class PCTService:
         cmd = cmd.replace(" 2>&1", "")
         return self.lxc.execute(cmd)
 
+    def set_option(self, container_id: str, option: str, value: str) -> tuple[Optional[str], Optional[int]]:
+        """
+        Set a container option using pct set.
+        Args:
+            container_id: Container ID
+            option: Option name (e.g. 'onboot')
+            value: Option value (string as expected by pct)
+        Returns:
+            Tuple of (output, exit_code)
+        """
+        cmd = PCT().container_id(container_id).set_option(option, value).replace(" 2>&1", "")
+        return self.lxc.execute(cmd)
+
+    def set_onboot(self, container_id: str, autostart: bool = True) -> tuple[Optional[str], Optional[int]]:
+        """
+        Configure container autostart on Proxmox boot (onboot flag).
+        Args:
+            container_id: Container ID
+            autostart: Whether container should start on boot
+        Returns:
+            Tuple of (output, exit_code)
+        """
+        value = "1" if autostart else "0"
+        return self.set_option(container_id, "onboot", value)
+
     def start(self, container_id: str) -> tuple[Optional[str], Optional[int]]:
         """
         Start container using pct start
@@ -745,9 +770,7 @@ class PCTService:
         # Validate template file exists and is readable
         if not template_service.validate_template(template_path):
             logger.error("Template file %s is missing or not readable", template_path)
-            base_template = template_service.get_base_template(cfg)
-            template_path = f"{cfg.proxmox_template_dir}/{base_template}"
-            logger.warning("Falling back to base template: %s", template_path)
+            raise RuntimeError(f"Template file {template_path} is missing or not readable")
         
         # Check if container already exists
         logger.info("Checking if container %s already exists...", container_id)
@@ -839,6 +862,20 @@ class PCTService:
         output, exit_code = self.set_features(container_id, nesting=should_be_nested, keyctl=True, fuse=True)
         if exit_code is not None and exit_code != 0:
             logger.warning("Failed to set container features: %s", output)
+
+        # Configure autostart (onboot) based on container config (default: True)
+        autostart = True
+        if hasattr(container_cfg, "autostart") and container_cfg.autostart is not None:
+            autostart = bool(container_cfg.autostart)
+        logger.info(
+            "Setting autostart for container %s (onboot=%s)...",
+            container_id,
+            "1" if autostart else "0",
+        )
+        output, exit_code = self.set_onboot(container_id, autostart)
+        if exit_code is not None and exit_code != 0:
+            logger.error("Failed to set autostart (onboot) for container %s: %s", container_id, output)
+            return False
         
         # Start container
         logger.info("Starting container %s...", container_id)

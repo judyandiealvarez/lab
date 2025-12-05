@@ -38,13 +38,18 @@ class TemplateService:
         # Run pveam download with live output
         download_cmd = f"pveam download local {template_to_download}"
         logger.info("Running: %s", download_cmd)
-        self.lxc.execute(download_cmd, timeout=300)
+        output, exit_code = self.lxc.execute(download_cmd, timeout=300)
         # Verify download completed
         verify_cmd = f"test -f {template_dir}/{template_to_download} && echo exists || echo missing"
         verify_result, _ = self.lxc.execute(verify_cmd)
         if not verify_result or "exists" not in verify_result:
-            logger.error("Template %s was not downloaded successfully", template_to_download)
-            return None
+            error_msg = f"Template {template_to_download} download failed"
+            if exit_code is not None and exit_code != 0:
+                error_msg += f" (exit code: {exit_code})"
+            if output:
+                error_msg += f". Output: {output}"
+            logger.error(error_msg)
+            raise RuntimeError(error_msg)
         logger.info("Template %s downloaded successfully", template_to_download)
         return template_to_download
 
@@ -56,11 +61,15 @@ class TemplateService:
             cfg: Lab configuration
         Returns:
             Full path to template file
+        Raises:
+            RuntimeError: If template cannot be found or downloaded
         """
         template_dir = cfg.proxmox_template_dir
         # If template_name is None, use base template directly
         if template_name is None:
             base_template = self.get_base_template(cfg)
+            if not base_template:
+                raise RuntimeError("Failed to get base template")
             return f"{template_dir}/{base_template}"
         # Find template config
         template_cfg = None
@@ -71,6 +80,8 @@ class TemplateService:
         if not template_cfg:
             # Fallback to base template
             base_template = self.get_base_template(cfg)
+            if not base_template:
+                raise RuntimeError("Failed to get base template")
             return f"{template_dir}/{base_template}"
         # Find template file by name - search for files matching template name
         template_name_pattern = f"{template_cfg.name}*.tar.zst"
@@ -80,6 +91,8 @@ class TemplateService:
             return f"{template_dir}/{template_file.strip()}"
         # Fallback to base template
         base_template = self.get_base_template(cfg)
+        if not base_template:
+            raise RuntimeError("Failed to get base template")
         return f"{template_dir}/{base_template}"
 
     def validate_template(self, template_path: str) -> bool:

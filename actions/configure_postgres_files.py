@@ -18,12 +18,17 @@ class ConfigurePostgresFilesAction(Action):
         # Get params
         version = "17"
         port = 5432
+        # Use network from config (environment-specific) if available, otherwise fallback to container params or default
         allow_cidr = "10.11.3.0/24"
+        if self.cfg and hasattr(self.cfg, "network") and self.cfg.network:
+            allow_cidr = self.cfg.network
         if self.container_cfg:
             params = self.container_cfg.params or {}
             version = str(params.get("version", "17"))
             port = params.get("port", 5432)
-            allow_cidr = params.get("cidr", "10.11.3.0/24")
+            # Only use container param cidr if config network is not available
+            if not (self.cfg and hasattr(self.cfg, "network") and self.cfg.network):
+                allow_cidr = params.get("cidr", allow_cidr)
         config_path = f"/etc/postgresql/{version}/main/postgresql.conf"
         # Remove all existing listen_addresses lines
         remove_cmd = f"sed -i '/^#*listen_addresses.*/d' {config_path}"
